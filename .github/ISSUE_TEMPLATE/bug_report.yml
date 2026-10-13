@@ -1,0 +1,32 @@
+name: Bug report
+description: The server has no implementation yet -- report only what actually exists
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is a **placeholder** (pre-specification). There is no server
+        implementation to report a crash against. If you expected an implementation here,
+        that expectation mismatch is the report.
+  - type: textarea
+    id: what-you-expected
+    attributes:
+      label: What did you expect this repository to contain?
+      placeholder: A working server, documentation of one, ...
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of problem?
+      options:
+        - Documentation error or mirror inconsistency (cn/ vs en/)
+        - Placeholder text is misleading
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: Detail
+    validations:
+      required: true
