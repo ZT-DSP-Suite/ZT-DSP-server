@@ -1,5 +1,13 @@
 # ZT-DSP Server Edition
 
+## 这里有什么
+
+relay 服务端的占位说明与许可。
+
+## 按什么找
+
+协议行为见 ZT-DSP-docs 的规范正文。
+
 > **Placeholder repository.** The ZT-DSP server edition has not been implemented yet.
 > This repository currently contains only this notice, the bilingual placeholder
 > documentation, and the license.

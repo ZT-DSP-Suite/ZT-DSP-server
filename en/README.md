@@ -1,5 +1,13 @@
 # ZT-DSP Server Edition (work in progress)
 
+## 这里有什么
+
+The English description of the relay server.
+
+## 按什么找
+
+Protocol behaviour is specified in ZT-DSP-docs.
+
 > This repository is a **placeholder** for the ZT-DSP server edition. No implementation has started yet.
 
 ## Why a server edition is needed
