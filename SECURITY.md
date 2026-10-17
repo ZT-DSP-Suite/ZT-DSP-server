@@ -17,7 +17,8 @@ Once a server implementation exists, vulnerabilities are reported through **priv
 2. Go to **Security** -> **Advisories** -> **Report a vulnerability**.
 
 > That channel only works after **Settings -> Code security -> Enable private vulnerability reporting** is turned on.
-> It is **off by default** on a new repository, so until someone enables it, use the coordination layer instead.
+> It is **off by default** on a new repository. Until it is enabled, open a public issue that contains no exploit
+> details, and the maintainer will move the discussion to a private channel.
 
 ## What counts as in scope
 
@@ -30,5 +31,5 @@ Once a server implementation exists, vulnerabilities are reported through **priv
 
 ## Disclosure timeline
 
-Coordinated disclosure through the private channel. There is no fixed SLA until the channel above is
-actually enabled -- do not quote a response time that nobody is measuring.
+Coordinated disclosure through the private channel. No response-time commitment is published for this
+placeholder repository.
