@@ -52,4 +52,4 @@ carries a version or protocol identifier field.
 
 ## Licence
 
-Dual-licensed under **AGPL-3.0-or-later** or a **commercial license**. See [LICENSING.md](LICENSING.md) and [LICENSE](LICENSE).
+Dual-licensed under **AGPL-3.0-or-later** or a **commercial license**. See [LICENSING.md](../LICENSING.md) and [LICENSE](../LICENSE).
