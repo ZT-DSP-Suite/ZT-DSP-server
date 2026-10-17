@@ -34,7 +34,7 @@ relay 服务端的中文说明。
 | 适用总指导版本 | 1.0.0（可以有多个，见下方「适用关系」） |
 | 客户端版本 | ZT-DSP_PY-1.0.0（仓库 `ZT-DSP-client`）、ZT-DSP_RS-1.0.0（同一仓库） |
 | 服务端版本 | ZT-DSP_SV-1.0.0（本仓库，占位，尚未实现） |
-| 遵循文档 | 《ZT-DSP 协议总指导》，路径 ZT-DSP-docs/cn/spec/ZT-DSP-1.0.0-总指导.md |
+| 遵循文档 | 《ZT-DSP 协议总指导》，路径 ZT-DSP-docs/cn/spec/ZT-DSP-1.0.1-总指导.md |
 
 ### 适用关系（多对多）
 
