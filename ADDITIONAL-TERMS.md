@@ -1,0 +1,46 @@
+# Additional Terms under AGPL-3.0 Section 7
+
+This file states additional terms permitted by section **7** of the GNU Affero
+General Public License v3.0. They are confined to the categories that section
+allows and withdraw no permission granted by the license itself.
+
+## Section 7(b) — preservation of notices and author attribution
+
+1. Every copy and every modified version must keep, in each source file, both lines:
+
+        SPDX-License-Identifier: AGPL-3.0-or-later
+        Copyright (c) 2026 ZT-DSP Suite maintainers (copyright holder: SCAL-ROAM)
+
+2. The Appropriate Legal Notices displayed by a work containing this program must
+   state that the work is based on ZT-DSP.
+3. Placing the notice only in a file the user cannot reasonably find does not satisfy
+   either requirement.
+
+## Section 7(c) — origin must not be misrepresented
+
+A modified version must be marked in a reasonable way as different from the original
+ZT-DSP release. Claiming conformance for behaviour that no longer conforms is a
+misrepresentation of origin.
+
+## Section 7(e) — no trademark rights
+
+No right is granted to use the names ZT-DSP or ZT-DSP-Suite, or the ZT-DSP logo,
+beyond the reasonable and customary use described in TRADEMARK.md.
+
+## Scope and severability
+
+Section 7 permits a licensee to remove additional terms that fall outside
+7(a)–(f). These terms are drafted to stay inside 7(b), 7(c) and 7(e). If any part
+is found to exceed that scope, that part alone is severable and the remaining terms
+and the license itself are unaffected.
+
+---
+
+## 中文摘要
+
+本文件是依 AGPL-3.0 第 7 条作出的附加条款，仅限该条允许的范围：
+
+- **7(b) 保留声明**：每个源文件必须保留 SPDX 标识与版权行；作品的「适当法律声明」必须说明其基于 ZT-DSP。
+- **7(c) 不得虚假标示来源**：改动版必须明确标为与原始版本不同。
+- **7(e) 不授予商标权**：除 TRADEMARK.md 允许的合理使用外，不得使用 ZT-DSP 名称与标识。
+- **可分割**：若某条被认定超出第 7 条范围，该条单独失效，其余条款与许可本身不受影响。
