@@ -49,4 +49,4 @@
 
 ## 许可
 
-本项目同时以 **MIT** 与 **Apache-2.0** 授权，使用方可任选其一。详见 `LICENSE`、`LICENSE-MIT`、`LICENSE-APACHE`。
+本项目以 **AGPL-3.0-or-later** 或另行约定的**商业授权**双轨发布。详见 [LICENSING.md](../LICENSING.md) 与 [LICENSE](../LICENSE)。

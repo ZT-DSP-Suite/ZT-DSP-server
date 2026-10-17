@@ -25,5 +25,4 @@ end-to-end encryption and expose only the minimum metadata needed for routing.
 
 ## License
 
-Dual-licensed under **MIT OR Apache-2.0** — users may choose either one. See `LICENSE`,
-`LICENSE-MIT` and `LICENSE-APACHE`.
+Dual-licensed under **AGPL-3.0-or-later** or a **commercial license**. See [LICENSING.md](LICENSING.md) and [LICENSE](LICENSE).

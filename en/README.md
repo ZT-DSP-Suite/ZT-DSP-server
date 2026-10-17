@@ -52,4 +52,4 @@ carries a version or protocol identifier field.
 
 ## Licence
 
-This project is licensed under **MIT** and **Apache-2.0**; a user may choose either one. See `LICENSE`, `LICENSE-MIT` and `LICENSE-APACHE`.
+Dual-licensed under **AGPL-3.0-or-later** or a **commercial license**. See [LICENSING.md](LICENSING.md) and [LICENSE](LICENSE).
