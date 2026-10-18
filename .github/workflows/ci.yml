@@ -41,16 +41,17 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             machine: X86-64
             cross: false
-            linker: cc
           - target: aarch64-unknown-linux-gnu
             machine: AArch64
             cross: true
-            linker: aarch64-linux-gnu-gcc
     env:
-      # An environment variable overrides the linker in .cargo/config.toml, which
-      # is written for a developer building on the other architecture.
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+      # One linker per target triple, not per matrix leg. The runner is x86_64,
+      # so the host triple links with the native cc and the aarch64 triple links
+      # with the cross compiler. An environment variable takes precedence over
+      # .cargo/config.toml, which is written for a developer on the other
+      # architecture.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
