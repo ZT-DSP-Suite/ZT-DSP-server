@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (c) 2026 ZT-DSP Suite contributors
 
-//! 本地指标。**只记计数，绝不记身份。**
+//! 本地指标。只记聚合计数：不含令牌哈希、会话 ID、载荷。
 //!
-//! 规范第 978 行【强制】：服务器运营者不得记录阶段一的配对信息。
-//! 因此这里只有聚合计数，没有任何令牌哈希、IP 或会话映射。
+//! 规范第 978 行【强制】禁止记录阶段一的配对信息。本模块因此只有聚合计数。
+//! 注意：对端套接字地址会出现在 `debug` 级日志里（运维定位用），`info` 级不含。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

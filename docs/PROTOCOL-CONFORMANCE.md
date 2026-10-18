@@ -14,7 +14,7 @@ Reference: **ZT-DSP 1.0.1**, `cn/spec/ZT-DSP-1.0.1-总指导.md`
 |---|---|
 | Server only forwards envelopes; cannot decrypt (§4.2 line 254) | After pairing, `relay_pair` moves bytes and never inspects payload |
 | Server reads only phase-1 routing material | `frame::read_phase1` extracts the two 32-byte token hashes |
-| Must not log pairing information (line 978) | `metrics.rs` holds counters only: no hashes, no IPs, no session ids |
+| Must not log pairing information (line 978) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. |
 | Worst case is availability, not confidentiality (line 972) | Structural: no key material reaches the server |
 
 ## 2. Appendix F.0 — framing

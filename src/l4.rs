@@ -462,7 +462,10 @@ mod tests {
         d.touch(h(7));
         let (alive, ago) = d.lookup(h(7)).unwrap();
         assert!(alive);
-        assert_eq!(ago.map(|s| s % 60), Some(0), "时间必须粗化到整分钟");
+        // 刚写入的记录必须落在第一个整分钟桶里；这同时排除「没做粗化」的实现
+        let ago = ago.expect("刚写入的记录应有时间戳");
+        assert!(ago < 60, "刚写入的记录粗化后应小于 60 秒，实际 {ago}");
+        assert_eq!(ago % 60, 0, "粗化结果必须是整分钟");
     }
 
     #[test]

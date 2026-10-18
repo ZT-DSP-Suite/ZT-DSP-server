@@ -77,6 +77,6 @@ By default:
 | Presence records | Only if the operator opts in; otherwise nothing is recorded |
 | Group log | In memory, capped, lost on restart |
 | Directory rows | In memory, swept after `directory.ttl_secs` (default 1 h); the feature is off by default |
-| Logs | stderr; no token hashes, no session ids, no payloads |
+| Logs | stderr; no token hashes, no session ids, no payloads. Peer socket addresses appear at `debug` only, never at `info` |
 
 Nothing is written to disk by the server itself.
