@@ -776,7 +776,6 @@ mod lobby {
     struct Entry<T> {
         id: u64,
         identity: Identity,
-        frame: Phase1Frame,
         deliver: oneshot::Sender<Handoff<T>>,
     }
 
@@ -792,9 +791,7 @@ mod lobby {
         /// 配上了。你是后到的一方：把 `Handoff{ frame: 你的帧, payload: 你的连接 }`
         /// 发进 `deliver_to_peer`，你的任务即可收工。
         Matched {
-            /// 先到方的阶段一帧（由接管方负责写入先到方自己的连接）
-            #[allow(dead_code)]
-            peer_frame: Phase1Frame,
+            /// 接管方把这条交接投递出去后，连接就归它所有。
             deliver_to_peer: oneshot::Sender<Handoff<T>>,
         },
         /// 没人等，进池子等对端
@@ -843,7 +840,6 @@ mod lobby {
                     }
                     drop(guard);
                     return Outcome::Matched {
-                        peer_frame: peer.frame,
                         deliver_to_peer: peer.deliver,
                     };
                 }
@@ -852,7 +848,6 @@ mod lobby {
             guard.entry(me.dst).or_default().push(Entry {
                 id,
                 identity: me,
-                frame,
                 deliver: tx,
             });
 
@@ -930,15 +925,11 @@ mod lobby {
         #[test]
         fn mutual_match_pairs_both() {
             let lobby: Lobby<u32> = Lobby::new();
-            let _a = lobby.register(frame(0xAA, 0xBB));
+            let first = lobby.register(frame(0xAA, 0xBB));
             assert_eq!(lobby.waiting_count(), 1);
 
             match lobby.register(frame(0xBB, 0xAA)) {
-                Outcome::Matched {
-                    peer_frame,
-                    deliver_to_peer,
-                } => {
-                    assert_eq!(peer_frame.identity.src.0, [0xAA; 32]);
+                Outcome::Matched { deliver_to_peer } => {
                     // 模拟后到方把自己交过去
                     assert!(
                         deliver_to_peer
@@ -953,6 +944,17 @@ mod lobby {
                 _ => panic!("B 应该配上 A"),
             }
             assert_eq!(lobby.waiting_count(), 0);
+
+            // 先到方收到的必须正是后到方那一帧，而不是自己的或空的
+            match first {
+                Outcome::Waiting { rx, .. } => {
+                    let handoff = rx.blocking_recv().expect("先到方应当收到交接");
+                    assert_eq!(handoff.frame.identity.src.0, [0xBB; 32]);
+                    assert_eq!(handoff.frame.identity.dst.0, [0xAA; 32]);
+                    assert_eq!(handoff.payload, 42);
+                }
+                _ => panic!("A 应该在等候"),
+            }
         }
 
         #[test]
@@ -1252,6 +1254,46 @@ mod config {
 
     use serde::{Deserialize, Serialize};
 
+    /// 配置装载失败。
+    ///
+    /// 以前「读不到」和「读到了但不合法」都被压成 io::ErrorKind::InvalidData，
+    /// 调用方无法区分这两种情况，原始错误也只能拼进字符串里、丢掉类型。
+    #[derive(Debug)]
+    pub enum ConfigError {
+        /// 文件读不到（不存在、权限不足等）
+        Read {
+            path: std::path::PathBuf,
+            source: std::io::Error,
+        },
+        /// 文件读到了，但内容不是合法配置
+        Parse {
+            path: std::path::PathBuf,
+            source: serde_json::Error,
+        },
+    }
+
+    impl std::fmt::Display for ConfigError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Read { path, source } => {
+                    write!(f, "读取配置文件 {} 失败: {source}", path.display())
+                }
+                Self::Parse { path, source } => {
+                    write!(f, "配置文件 {} 解析失败: {source}", path.display())
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for ConfigError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                Self::Read { source, .. } => Some(source),
+                Self::Parse { source, .. } => Some(source),
+            }
+        }
+    }
+
     /// 服务器档位（附录 B.2）。
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "kebab-case")]
@@ -1320,6 +1362,18 @@ mod config {
         pub offline: OfflineConfig,
         pub group: GroupConfig,
         pub directory: DirectoryConfig,
+        /// 控制面单行读取超时。
+        pub control_read_timeout_secs: u64,
+        /// 控制面写响应超时。
+        pub control_write_timeout_secs: u64,
+        /// 中继单向写超时。
+        pub relay_write_timeout_secs: u64,
+        /// accept 出错后的退避，避免瞬时错误变成满速重试。
+        pub accept_backoff_ms: u64,
+        /// 等候池清扫周期。取比 lobby 超时更小的值，超时才能及时释放。
+        pub sweep_lobby_secs: u64,
+        /// 存储清扫周期：按各存储自己的 TTL 判过期，这里只决定多久看一次。
+        pub sweep_storage_secs: u64,
     }
 
     impl Default for Config {
@@ -1402,6 +1456,12 @@ mod config {
                 offline,
                 group,
                 // 所有档位默认关闭：见模块文档
+                control_read_timeout_secs: 30,
+                control_write_timeout_secs: 30,
+                relay_write_timeout_secs: 30,
+                accept_backoff_ms: 50,
+                sweep_lobby_secs: 5,
+                sweep_storage_secs: 60,
                 directory: DirectoryConfig {
                     enabled: false,
                     ttl_secs: 3_600,
@@ -1423,6 +1483,21 @@ mod config {
             }
             if self.buffer_bytes == 0 {
                 return Err("buffer_bytes must be greater than zero".into());
+            }
+            for (name, v) in [
+                ("control_read_timeout_secs", self.control_read_timeout_secs),
+                (
+                    "control_write_timeout_secs",
+                    self.control_write_timeout_secs,
+                ),
+                ("relay_write_timeout_secs", self.relay_write_timeout_secs),
+                ("accept_backoff_ms", self.accept_backoff_ms),
+                ("sweep_lobby_secs", self.sweep_lobby_secs),
+                ("sweep_storage_secs", self.sweep_storage_secs),
+            ] {
+                if v == 0 {
+                    return Err(format!("{name} must be greater than zero"));
+                }
             }
 
             // 条件生效的项：功能关着时，它自己的参数取 0 是正常的
@@ -1471,18 +1546,14 @@ mod config {
         ///
         /// 文件不存在时**返回错误**，不静默降级 —— 否则 `--config` 路径写错会让
         /// 高匿名档静默变成 beginner 档（离线存储开、目录开）。
-        pub fn load(path: &Path) -> std::io::Result<Self> {
-            let bytes = std::fs::read(path).map_err(|e| {
-                std::io::Error::new(
-                    e.kind(),
-                    format!("读取配置文件 {} 失败: {e}", path.display()),
-                )
+        pub fn load(path: &Path) -> Result<Self, ConfigError> {
+            let bytes = std::fs::read(path).map_err(|source| ConfigError::Read {
+                path: path.to_path_buf(),
+                source,
             })?;
-            serde_json::from_slice(&bytes).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("配置文件 {} 解析失败: {e}", path.display()),
-                )
+            serde_json::from_slice(&bytes).map_err(|source| ConfigError::Parse {
+                path: path.to_path_buf(),
+                source,
             })
         }
     }
@@ -2716,9 +2787,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let shared = Arc::clone(&shared);
         tokio::spawn(async move {
-            let mut lobby_tick = tokio::time::interval(Duration::from_secs(5));
-            let mut offline_tick = tokio::time::interval(Duration::from_secs(60));
-            let mut dir_tick = tokio::time::interval(Duration::from_secs(60));
+            let mut lobby_tick =
+                tokio::time::interval(Duration::from_secs(shared.cfg.sweep_lobby_secs));
+            let mut offline_tick =
+                tokio::time::interval(Duration::from_secs(shared.cfg.sweep_storage_secs));
+            let mut dir_tick =
+                tokio::time::interval(Duration::from_secs(shared.cfg.sweep_storage_secs));
             loop {
                 tokio::select! {
                     _ = lobby_tick.tick() => {
@@ -2752,7 +2826,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(err) => {
                 // 不退避的话，EMFILE 之类的瞬时错误会变成满速重试
                 warn!(error = %err, "accept failed, backing off");
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(shared.cfg.accept_backoff_ms)).await;
                 continue;
             }
         };
@@ -2833,10 +2907,7 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
     let identity = my_frame.identity;
 
     match shared.lobby.register(my_frame.clone()) {
-        Outcome::Matched {
-            peer_frame: _,
-            deliver_to_peer,
-        } => {
+        Outcome::Matched { deliver_to_peer } => {
             let handed = deliver_to_peer.send(Handoff {
                 frame: my_frame,
                 payload: stream,
@@ -2880,7 +2951,9 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
                         } else {
                             None
                         },
-                        write_timeout: Some(Duration::from_secs(30)),
+                        write_timeout: Some(Duration::from_secs(
+                            shared.cfg.relay_write_timeout_secs,
+                        )),
                     };
                     let (ab, ba, cause) =
                         relay_pair(stream, peer_stream, opts, &shared.metrics).await;

@@ -29,6 +29,22 @@ governing change history is `git log`. If the two ever disagree, `git log` wins.
 
 ### Changed
 
+- **The dead pairing field is gone.** Outcome::Matched carried the peer's
+  Phase 1 frame, but production destructured it as `peer_frame: _` and threw
+  it away; only a test read it. The field and the entry slot that fed it are
+  both removed, and the test now asserts something stronger: that the peer
+  which arrived first receives the frame of the peer which arrived second,
+  read off its own handoff channel.
+- **Configuration loading has its own error type.** Both failures used to be
+  flattened into io::ErrorKind::InvalidData, so a caller could not tell
+  "cannot read the file" from "the file is not valid JSON", and the
+  original error was only reachable as text. ConfigError now carries the
+  path and the source error for each case, and implements Error::source.
+- **The scattered timeouts are configuration now.** The control-plane read and
+  write timeouts, the byte-relay write timeout, the accept backoff and the two
+  sweep cadences were literals spread across the file. They are six fields on
+  Config with documented defaults, and the validator refuses a zero.
+
 - **Relay return type no longer lies**: relay_pair never produced an Err, so its
   io::Result wrapper was dead ceremony. It now returns the tuple directly.
 - **L4Error is a real error type**: implements std::error::Error and PartialEq,
