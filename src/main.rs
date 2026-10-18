@@ -232,10 +232,23 @@ mod silent {
     //! 规范要求五要素缺一不可：
     //!
     //! 1. 不发送任何字节
-    //! 2. 不主动关闭连接（FIN / RST 本身就是信号）
+    //! 2. 门禁窗口内不主动关闭连接 —— FIN / RST 本身就是「被拒」的信号，
+    //!    所以在窗口结束前既不写、也不关
     //! 3. 以 8192B 为块持续读并丢弃，挂起到截止时间
     //! 4. 诊断只进本地 stderr，绝不进网络侧
     //! 5. 网络观感与「关闭的端口」不可区分
+    //!
+    //! 第 2 条与第 5 条容易读成矛盾：一条说不关，一条说要跟关掉的端口
+    //! 一样。它们的调和方式是**时间**：
+    //!
+    //! * 窗口**之内**，对端看到的是一个「还在、但不吭声」的连接。这跟一个
+    //!   关掉的端口不同（关掉的端口会立刻 RST），但对端无法区分「被拒」与
+    //!   「对端只是慢」，这正是要点。
+    //! * 窗口**结束**时，连接按普通连接收尾 —— 关闭，不带任何错误码、
+    //!   不带任何应用层响应。跟一个正常结束的连接相比，对端看不出差别。
+    //!
+    //! 所以「不可区分」说的是**没有可区分的拒绝痕迹**，不是「永远不关」。
+    //! 真的永远不关，连接就会一直挂着，那才是可区分的。
     //!
     //! 服务端的职责边界（总指导第 972 行）：服务器最坏只能拒转 / 延迟 / 丢包，
     //! 这些都是可用性攻击，偷不到内容。所以门禁判定失败时，静默丢弃就是正确响应。
@@ -434,6 +447,28 @@ mod frame {
         }
     }
 
+    /// 读一个 [len:4B][payload] 段。
+    ///
+    /// 参数 JSON、身份宣告、接入随机数用的是同一种布局，收成一处，
+    /// 免得三份写法各自漂移。返回长度字段与载荷，调用方把长度字段
+    /// 原样拼回 raw —— 阶段一帧必须逐字节复现，不能重新编码。
+    async fn read_len_prefixed<R: AsyncRead + Unpin>(
+        r: &mut R,
+        deadline: Instant,
+        max: u32,
+        what: &'static str,
+    ) -> Result<(u32, Vec<u8>), FrameError> {
+        let len = read_u32_be(r, deadline).await?;
+        if len > max {
+            return Err(FrameError::LengthExceeded(what));
+        }
+        let mut buf = vec![0u8; len as usize];
+        if len > 0 {
+            read_exact_deadline(r, &mut buf, deadline).await?;
+        }
+        Ok((len, buf))
+    }
+
     async fn read_u32_be<R: AsyncRead + Unpin>(
         r: &mut R,
         deadline: Instant,
@@ -540,38 +575,21 @@ mod frame {
     ) -> Result<Phase1Frame, FrameError> {
         let mut raw: Vec<u8> = Vec::with_capacity(256);
 
-        let param_len = read_u32_be(r, deadline).await?;
-        if param_len > PARAM_JSON_MAX {
-            return Err(FrameError::LengthExceeded("param_json"));
-        }
+        let (param_len, param_json) =
+            read_len_prefixed(r, deadline, PARAM_JSON_MAX, "param_json").await?;
         raw.extend_from_slice(&param_len.to_be_bytes());
-        let mut param_json = vec![0u8; param_len as usize];
-        if param_len > 0 {
-            read_exact_deadline(r, &mut param_json, deadline).await?;
-        }
         raw.extend_from_slice(&param_json);
 
-        let identity_len = read_u32_be(r, deadline).await?;
-        if identity_len > IDENTITY_MAX {
-            return Err(FrameError::LengthExceeded("identity_blob"));
-        }
+        let (identity_len, identity_blob) =
+            read_len_prefixed(r, deadline, IDENTITY_MAX, "identity_blob").await?;
         if identity_len < IDENTITY_MIN {
             return Err(FrameError::IdentityTooShort);
         }
         raw.extend_from_slice(&identity_len.to_be_bytes());
-        let mut identity_blob = vec![0u8; identity_len as usize];
-        read_exact_deadline(r, &mut identity_blob, deadline).await?;
         raw.extend_from_slice(&identity_blob);
 
-        let nonce_len = read_u32_be(r, deadline).await?;
-        if nonce_len > NONCE_MAX {
-            return Err(FrameError::LengthExceeded("nonce"));
-        }
+        let (nonce_len, nonce) = read_len_prefixed(r, deadline, NONCE_MAX, "nonce").await?;
         raw.extend_from_slice(&nonce_len.to_be_bytes());
-        let mut nonce = vec![0u8; nonce_len as usize];
-        if nonce_len > 0 {
-            read_exact_deadline(r, &mut nonce, deadline).await?;
-        }
         raw.extend_from_slice(&nonce);
 
         // 参数集必须是合法 UTF-8 JSON
@@ -1567,6 +1585,7 @@ mod l4 {
         Disabled,
         PayloadTooLarge { max: usize },
         NotFound,
+        NotAMember,
         AlreadyExists,
         GroupFull { max: usize },
         GroupLimit { max: usize },
@@ -1580,6 +1599,7 @@ mod l4 {
                 Self::Disabled => "disabled",
                 Self::PayloadTooLarge { .. } => "payload_too_large",
                 Self::NotFound => "not_found",
+                Self::NotAMember => "not_a_member",
                 Self::AlreadyExists => "already_exists",
                 Self::GroupFull { .. } => "group_full",
                 Self::GroupLimit { .. } => "group_limit",
@@ -1596,6 +1616,7 @@ mod l4 {
                 L4Error::Disabled => write!(f, "该功能在当前档位被关闭"),
                 L4Error::PayloadTooLarge { max } => write!(f, "载荷超过上限 {max} 字节"),
                 L4Error::NotFound => write!(f, "未找到"),
+                L4Error::NotAMember => write!(f, "不是该群成员"),
                 L4Error::AlreadyExists => write!(f, "已存在"),
                 L4Error::GroupFull { max } => write!(f, "群成员已达上限 {max}"),
                 L4Error::GroupLimit { max } => write!(f, "群组数量已达上限 {max}"),
@@ -1617,6 +1638,14 @@ mod l4 {
         inner: Mutex<HashMap<TokenHash, VecDeque<Stored>>>,
     }
 
+    /// 载荷上限校验。离线信封与群组日志用同一把尺子。
+    fn check_payload_len(len: usize, max: usize) -> Result<(), L4Error> {
+        if len > max {
+            return Err(L4Error::PayloadTooLarge { max });
+        }
+        Ok(())
+    }
+
     impl OfflineStore {
         pub fn new(cfg: OfflineConfig) -> Self {
             Self {
@@ -1630,11 +1659,7 @@ mod l4 {
             if !self.cfg.enabled || self.cfg.max_per_recipient == 0 {
                 return Err(L4Error::Disabled);
             }
-            if payload.len() > self.cfg.max_payload {
-                return Err(L4Error::PayloadTooLarge {
-                    max: self.cfg.max_payload,
-                });
-            }
+            check_payload_len(payload.len(), self.cfg.max_payload)?;
             let mut guard = crate::lock(&self.inner);
 
             if !guard.contains_key(&dst) && guard.len() >= self.cfg.max_recipients {
@@ -1788,17 +1813,15 @@ mod l4 {
             if !self.cfg.enabled {
                 return Err(L4Error::Disabled);
             }
-            if payload.len() > self.cfg.max_payload {
-                return Err(L4Error::PayloadTooLarge {
-                    max: self.cfg.max_payload,
-                });
-            }
+            check_payload_len(payload.len(), self.cfg.max_payload)?;
             let mut guard = crate::lock(&self.inner);
             let Some(g) = guard.get_mut(name) else {
                 return Err(L4Error::NotFound);
             };
             if !g.members.contains(&sender) {
-                return Err(L4Error::NotFound);
+                // 专用变体而不是 NotFound：报错不回显群组是否存在，
+                // 免得成为探测群组存在性的旁路。
+                return Err(L4Error::NotAMember);
             }
             let cursor = g.next_cursor;
             g.next_cursor += 1;
@@ -1819,7 +1842,8 @@ mod l4 {
                 return Err(L4Error::NotFound);
             };
             if !g.members.contains(&member) {
-                return Err(L4Error::NotFound);
+                // 同上：不回显群组是否存在。
+                return Err(L4Error::NotAMember);
             }
             let since = *g.cursors.get(&member).unwrap_or(&0);
             let mut out = Vec::new();
@@ -1988,9 +2012,10 @@ mod l4 {
         fn group_rejects_non_member() {
             let g = Groups::new(group_cfg());
             g.create("room", h(1)).unwrap();
+            // 非成员拿到的是专用变体，不回显群组是否存在
             assert!(matches!(
                 g.send("room", h(3), b"x".to_vec()),
-                Err(L4Error::NotFound)
+                Err(L4Error::NotAMember)
             ));
         }
 
