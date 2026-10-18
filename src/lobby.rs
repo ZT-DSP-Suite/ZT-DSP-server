@@ -95,8 +95,10 @@ impl<T> Lobby<T> {
         if let Some(entries) = guard.get_mut(&key) {
             if let Some(pos) = entries
                 .iter()
-                // 双向匹配：已等者要找的正是我(e.dst == me.src)，我要找的正是已等者(e.src == me.dst)
-                .position(|e| e.identity.src == me.dst && e.identity.dst == me.src)
+                // 双向匹配，并额外排除自配对（纵深防御：frame 层已拒 src == dst）
+                .position(|e| {
+                    me.src != me.dst && e.identity.src == me.dst && e.identity.dst == me.src
+                })
             {
                 let peer = entries.remove(pos);
                 if entries.is_empty() {
@@ -230,6 +232,18 @@ mod tests {
             Outcome::Waiting { .. }
         ));
         assert_eq!(lobby.waiting_count(), 2);
+    }
+
+    #[test]
+    fn self_pairing_is_refused() {
+        let lobby: Lobby<u32> = Lobby::new();
+        // src == dst 的两次登记不得互相配上
+        let _a = lobby.register(frame(0xAA, 0xAA));
+        let b = lobby.register(frame(0xAA, 0xAA));
+        assert!(
+            matches!(b, Outcome::Waiting { .. }),
+            "自地址登记不得与自身配对"
+        );
     }
 
     #[test]

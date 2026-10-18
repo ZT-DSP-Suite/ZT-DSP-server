@@ -35,7 +35,9 @@ use crate::lobby::{Handoff, Lobby, Outcome};
 use crate::metrics::Metrics;
 use crate::relay::{relay_pair, RelayOpts};
 
-/// 程序版本串，运行期以 `ZT-DSP · ZT-DSP_SV-<version>` 形式打印一次。
+/// 同时挂起等待的「被拒连接」上限。名额耗尽后直接关闭连接，
+/// 避免洪泛时后台任务数无界增长。
+const MAX_PENDING_DRAINS: usize = 256;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum ProfileArg {
@@ -78,6 +80,9 @@ struct Shared {
     offline: Arc<OfflineStore>,
     directory: Arc<Directory>,
     per_ip: Mutex<HashMap<IpAddr, usize>>,
+    /// 限制「拒绝后挂起」这一类后台任务的数量：没有它，洪泛时每个被拒连接
+    /// 都会 spawn 一个 15 秒的 drain 任务，并发任务数不受 max_connections 约束。
+    drain_limit: Arc<tokio::sync::Semaphore>,
 }
 
 struct ConnGuard(Arc<Metrics>);
@@ -160,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         offline: Arc::clone(&offline),
         directory: Arc::clone(&directory),
         per_ip: Mutex::new(HashMap::new()),
+        drain_limit: Arc::new(tokio::sync::Semaphore::new(MAX_PENDING_DRAINS)),
     });
 
     if let Some(caddr) = cfg.control_listen {
@@ -219,12 +225,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             >= shared.cfg.max_connections
         {
             Metrics::inc(&shared.metrics.rejected_silent);
-            // 过载也不得直接 FIN：与其它拒绝路径保持同样的静默观感与同样的时长
-            let mut s = stream;
+            // 过载也不得直接 FIN：与其它拒绝路径保持同样的静默观感与时长。
+            // 但挂起任务数必须有上限，否则洪泛时任务数会失控。
             let d = Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1));
-            tokio::spawn(async move {
-                let _ = silent::drain_silently(&mut s, d).await;
-            });
+            if let Ok(permit) = Arc::clone(&shared.drain_limit).try_acquire_owned() {
+                let mut s = stream;
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let _ = silent::drain_silently(&mut s, d).await;
+                });
+            } else {
+                // 挂起名额耗尽：宁可提前关闭，也不让任务数无界增长
+                drop(stream);
+            }
             continue;
         }
         shared.metrics.active_conns.fetch_add(1, Ordering::Relaxed);
