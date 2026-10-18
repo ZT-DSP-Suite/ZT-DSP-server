@@ -112,8 +112,13 @@ jobs:
           # The aarch64 binary cannot run natively on an x86_64 runner, so it
           # runs under qemu there. Either way the binary is executed, not
           # grepped.
+          #
+          # -L points qemu at the cross sysroot: the aarch64 loader and the
+          # aarch64 libc live under /usr/aarch64-linux-gnu on the runner, and
+          # qemu would otherwise look for them in the host's /lib and fail
+          # with the loader missing.
           if [ "${{ matrix.cross }}" = "true" ]; then
-            OUT=$(qemu-aarch64-static "$BIN" --version)
+            OUT=$(qemu-aarch64-static -L /usr/aarch64-linux-gnu "$BIN" --version)
           else
             OUT=$("$BIN" --version)
           fi
