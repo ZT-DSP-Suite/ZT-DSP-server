@@ -143,6 +143,28 @@ for sym in FOLLOWS_DOC FOLLOWS_DOC_PATH APPLIES_TO_DOC_VERSIONS IMPLEMENTATION_I
 done
 [ $vc -eq 0 ] && note 'version contract declared'
 
+echo '== 8. shared test vectors =='
+if [ -f test-vectors/vectors.json ]; then
+  if python3 -c "import json,sys; json.load(open('test-vectors/vectors.json'))" 2>/dev/null; then
+    note 'test-vectors/vectors.json parses'
+  else
+    bad 'test-vectors/vectors.json is not valid JSON'
+  fi
+else
+  bad 'test-vectors/vectors.json is missing'
+fi
+
+echo '== 9. third-party notices =='
+if [ -f THIRD-PARTY-NOTICES.md ]; then
+  if grep -q '^| crate | version | license |' THIRD-PARTY-NOTICES.md; then
+    note 'THIRD-PARTY-NOTICES.md present'
+  else
+    bad 'THIRD-PARTY-NOTICES.md has no license table'
+  fi
+else
+  bad 'THIRD-PARTY-NOTICES.md is missing'
+fi
+
 echo
 if [ $fails -ne 0 ]; then
   printf 'check.sh: FAILED (%d)\n' "$fails"

@@ -29,6 +29,38 @@ governing change history is `git log`. If the two ever disagree, `git log` wins.
 
 ### Changed
 
+- **Relay return type no longer lies**: relay_pair never produced an Err, so its
+  io::Result wrapper was dead ceremony. It now returns the tuple directly.
+- **L4Error is a real error type**: implements std::error::Error and PartialEq,
+  and carries a stable machine-readable code(). The control plane now answers with
+  error_code next to the human-readable error text, so machine clients no longer
+  have to parse prose.
+- **Mutex poisoning no longer panics a connection**: all 17 expect sites go through
+  a lock() helper that recovers the inner value. Every locked section is panic-free,
+  so poisoning can only come from a cancelled task, and the counters and maps are
+  still self-consistent.
+- **write_frame has a write timeout**, so the phase-1 replay during a pairing
+  handoff cannot hang a connection forever.
+- **Configuration is validated at startup** instead of being silently clamped at
+  runtime: the nine .max(1) clamps are gone, and a zero value now stops the process
+  from listening. Values belonging to a disabled feature are not checked.
+- **The accept loop backs off** on error instead of retrying at full speed.
+- **ct_eq compares length in constant time too** - the length difference no longer
+  short-circuits the loop.
+- **read_line_limited fills the buffer once**; the previous two-call pattern could
+  desynchronise the chunk length if the buffer was rewritten in between.
+- **A failed response serialisation is no longer swallowed** into a fake ok:false
+  body.
+- **The control plane rejects unknown fields.**
+- **The profile serialised name has a single source of truth** (serde kebab-case);
+  the duplicate as_str is gone and a test pins the wire names.
+- **A redundant guard arm** in the frame reader was removed, and a stale
+  allow(dead_code) on a field that is read was dropped.
+- **THIRD-PARTY-NOTICES.md** lists all 57 dependencies with the licence taken from
+  each pinned version's own Cargo.toml.
+- **test-vectors/** reuses the client repository's shared vectors, with a test that
+  keeps the -v3 derivation-label convention in lockstep with the client.
+
 - **Source consolidated into a single file** (`src/main.rs`), per the collection rule in
   `ZT-DSP-client/cn/README.md`: one implementation is one file, and the mainline directory
   does not grow a directory tree. Module boundaries are kept as inline `mod` blocks, and

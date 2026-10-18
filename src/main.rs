@@ -70,6 +70,33 @@ mod version {
             assert!(APPLIES_TO_DOC_VERSIONS.contains(&DOCS_VERSION));
         }
 
+        /// 复用 client 仓的共享一致性向量。
+        ///
+        /// 服务端不解密、不派生密钥，9 个向量里绝大多数对它没有直接约束。
+        /// 但派生标签的命名规则是服务端必须与规范保持一致的间接契约：
+        /// 只要客户端与服务端对 -v3 后缀的理解分叉，双方就永远通不了。
+        #[test]
+        fn shared_vectors_use_the_v3_suffix() {
+            let raw = include_str!("../test-vectors/vectors.json");
+            let v: serde_json::Value = serde_json::from_str(raw).expect("vectors.json 必须可解析");
+            assert_eq!(v["schema"], "zt-dsp-shared-vectors/1");
+
+            // INFO_EK_ROTATE 在上游 vectors.json 里就没有 -v3 后缀。
+            // 这是本仓观察到的上游数据不一致，不是本实现的选择；
+            // 已单列并在 PR 里向文档仓 owner 提问，对方确认前不擅自改上游数据。
+            const KNOWN_UPSTREAM_EXCEPTIONS: &[&str] = &["INFO_EK_ROTATE"];
+
+            let labels = v["labels"].as_object().expect("labels 必须是对象");
+            assert!(!labels.is_empty(), "labels 不得为空");
+            for (name, value) in labels {
+                let label = value.as_str().expect("label 必须是字符串");
+                if KNOWN_UPSTREAM_EXCEPTIONS.contains(&name.as_str()) {
+                    continue;
+                }
+                assert!(label.ends_with("-v3"), "{name} = {label} 缺少 -v3 后缀");
+            }
+        }
+
         #[test]
         fn format_version_is_single_line() {
             let s = format_version();
@@ -77,6 +104,15 @@ mod version {
             assert!(!s.contains('\n'));
         }
     }
+}
+
+/// 取互斥量守卫，中毒时取回内值。
+///
+/// 持锁区间内没有 unwrap、没有用户输入处理、没有分配失败传播，中毒只可能来自
+/// 「持锁任务被取消」。这种情形下计数器与映射仍自洽，恢复优于让连接崩掉 ——
+/// 静默丢弃契约本来就要求异常对端无感。
+fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 mod util {
@@ -392,7 +428,7 @@ mod frame {
     ) -> Result<(), FrameError> {
         match timeout_at(deadline, r.read_exact(buf)).await {
             Err(_) => Err(FrameError::Timeout),
-            Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => Err(FrameError::Eof),
+            // 守卫臂与兜底臂结果相同（都是 Eof），留着只会让人以为两者有区别
             Ok(Err(_)) => Err(FrameError::Eof),
             Ok(Ok(_)) => Ok(()),
         }
@@ -714,7 +750,6 @@ mod lobby {
     /// 后到一方交给先到一方的包裹。
     pub struct Handoff<T> {
         /// 后到方的阶段一帧（由接管方写入先到方的连接）
-        #[allow(dead_code)]
         pub frame: Phase1Frame,
         /// 后到方的连接
         pub payload: T,
@@ -772,7 +807,7 @@ mod lobby {
             let me = frame.identity;
             let (tx, rx) = oneshot::channel();
 
-            let mut guard = self.waiters.lock().expect("lobby mutex poisoned");
+            let mut guard = crate::lock(&self.waiters);
 
             // 我要找的人，正是「回头会来找我」的那个 key
             let key = me.src;
@@ -811,7 +846,7 @@ mod lobby {
 
         /// 退出池子。超时 / 断开时调用。
         pub fn withdraw(&self, ticket: Ticket) {
-            let mut guard = self.waiters.lock().expect("lobby mutex poisoned");
+            let mut guard = crate::lock(&self.waiters);
             if let Some(entries) = guard.get_mut(&ticket.key) {
                 entries.retain(|e| e.id != ticket.id);
                 if entries.is_empty() {
@@ -822,7 +857,7 @@ mod lobby {
 
         /// 清理「没人接听」的僵尸登记。返回清理条数。
         pub fn sweep(&self) -> usize {
-            let mut guard = self.waiters.lock().expect("lobby mutex poisoned");
+            let mut guard = crate::lock(&self.waiters);
             let mut removed = 0usize;
             guard.retain(|_, entries| {
                 let before = entries.len();
@@ -836,12 +871,7 @@ mod lobby {
         /// 当前等候人数（诊断用，不含身份信息）。
         #[allow(dead_code)]
         pub fn waiting_count(&self) -> usize {
-            self.waiters
-                .lock()
-                .expect("lobby mutex poisoned")
-                .values()
-                .map(|v| v.len())
-                .sum()
+            crate::lock(&self.waiters).values().map(|v| v.len()).sum()
         }
     }
 
@@ -1059,7 +1089,7 @@ mod relay {
         b: B,
         opts: RelayOpts,
         metrics: &Metrics,
-    ) -> io::Result<(u64, u64, StopCause)>
+    ) -> (u64, u64, StopCause)
     where
         A: AsyncRead + AsyncWrite + Unpin,
         B: AsyncRead + AsyncWrite + Unpin,
@@ -1086,7 +1116,7 @@ mod relay {
         let ba_n = ba_bytes.load(Ordering::Relaxed);
         Metrics::add(&metrics.bytes_in, ab_n);
         Metrics::add(&metrics.bytes_out, ba_n);
-        Ok((ab_n, ba_n, cause))
+        (ab_n, ba_n, cause)
     }
 
     #[cfg(test)]
@@ -1140,7 +1170,7 @@ mod relay {
             assert_eq!(&got2, b"pong");
 
             let _ = write_and_read(c1, c2, b"").await;
-            let (ab, ba, _cause) = h.await.unwrap().unwrap();
+            let (ab, ba, _cause) = h.await.unwrap();
             assert!(ab >= 4, "A→B 至少 4 字节，实际 {ab}");
             assert!(ba >= 4, "B→A 至少 4 字节，实际 {ba}");
         }
@@ -1214,7 +1244,11 @@ mod config {
     }
 
     impl Profile {
-        pub fn as_str(&self) -> &'static str {
+        /// 给人看的档位名（附录 B.2 的 B2-a/B2-b/B2-c）。
+        ///
+        /// 序列化名只有 serde 的 kebab-case 一处真值，这里不再写第二份；
+        /// 由 profile_serialized_names_are_pinned 把它钉住。
+        pub fn display_name(&self) -> &'static str {
             match self {
                 Profile::Beginner => "B2-a 入门公益",
                 Profile::Advanced => "B2-b 高级生产",
@@ -1357,6 +1391,56 @@ mod config {
             }
         }
 
+        /// 启动前校验：把「运行时静默改写成合法值」换成「启动时拒绝」。
+        pub fn validate(&self) -> Result<(), String> {
+            // 无条件生效的项
+            if self.handshake_timeout_secs == 0 {
+                return Err("handshake_timeout_secs must be greater than zero".into());
+            }
+            if self.lobby_timeout_secs == 0 {
+                return Err("lobby_timeout_secs must be greater than zero".into());
+            }
+            if self.max_connections == 0 {
+                return Err("max_connections must be greater than zero".into());
+            }
+            if self.buffer_bytes == 0 {
+                return Err("buffer_bytes must be greater than zero".into());
+            }
+
+            // 条件生效的项：功能关着时，它自己的参数取 0 是正常的
+            // （例如高匿名档下 offline 是关的，ttl_secs 本来就是 0）。
+            if self.offline.enabled {
+                if self.offline.ttl_secs == 0 {
+                    return Err(
+                        "offline.ttl_secs must be greater than zero when offline is enabled".into(),
+                    );
+                }
+                if self.offline.max_per_recipient == 0 {
+                    return Err(
+                        "offline.max_per_recipient must be greater than zero when offline is enabled"
+                            .into(),
+                    );
+                }
+                if self.offline.max_recipients == 0 {
+                    return Err(
+                        "offline.max_recipients must be greater than zero when offline is enabled"
+                            .into(),
+                    );
+                }
+            }
+            if self.group.enabled && self.group.max_groups == 0 {
+                return Err(
+                    "group.max_groups must be greater than zero when group is enabled".into(),
+                );
+            }
+            if self.directory.enabled && self.directory.ttl_secs == 0 {
+                return Err(
+                    "directory.ttl_secs must be greater than zero when directory is enabled".into(),
+                );
+            }
+            Ok(())
+        }
+
         /// 从 JSON 文件读取。
         ///
         /// 文件不存在时**返回错误**，不静默降级 —— 否则 `--config` 路径写错会让
@@ -1380,6 +1464,43 @@ mod config {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        /// 零值必须让进程启动失败，而不是在运行期被静默改写成 1。
+        #[test]
+        fn validate_rejects_zero_durations() {
+            let mut c = Config::for_profile(Profile::Beginner);
+            c.handshake_timeout_secs = 0;
+            assert!(c.validate().is_err(), "零超时必须被拒绝");
+        }
+
+        #[test]
+        fn validate_rejects_zero_limits() {
+            let mut c = Config::for_profile(Profile::Beginner);
+            c.max_connections = 0;
+            assert!(c.validate().is_err(), "零连接上限必须被拒绝");
+        }
+
+        /// 档位的序列化名只有 serde 一处真值，这个测试把它钉住。
+        #[test]
+        fn profile_serialized_names_are_pinned() {
+            let cases = [
+                (Profile::Beginner, "\"beginner\""),
+                (Profile::Advanced, "\"advanced\""),
+                (Profile::HighAnonymity, "\"high-anonymity\""),
+            ];
+            for (p, want) in cases {
+                assert_eq!(serde_json::to_string(&p).unwrap(), want);
+            }
+        }
+
+        #[test]
+        fn validate_accepts_every_shipped_profile() {
+            for p in [Profile::Beginner, Profile::Advanced, Profile::HighAnonymity] {
+                Config::for_profile(p)
+                    .validate()
+                    .unwrap_or_else(|e| panic!("{p:?} 配置应可启动: {e}"));
+            }
+        }
 
         #[test]
         fn directory_is_off_in_every_profile() {
@@ -1441,7 +1562,7 @@ mod l4 {
     use crate::frame::TokenHash;
 
     /// L4 操作错误。
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum L4Error {
         Disabled,
         PayloadTooLarge { max: usize },
@@ -1451,6 +1572,23 @@ mod l4 {
         GroupLimit { max: usize },
         RecipientLimit { max: usize },
     }
+
+    impl L4Error {
+        /// 稳定的机器可读码。文案可改、可本地化，**码不可改**：机器客户端只认它。
+        pub fn code(&self) -> &'static str {
+            match self {
+                Self::Disabled => "disabled",
+                Self::PayloadTooLarge { .. } => "payload_too_large",
+                Self::NotFound => "not_found",
+                Self::AlreadyExists => "already_exists",
+                Self::GroupFull { .. } => "group_full",
+                Self::GroupLimit { .. } => "group_limit",
+                Self::RecipientLimit { .. } => "recipient_limit",
+            }
+        }
+    }
+
+    impl std::error::Error for L4Error {}
 
     impl std::fmt::Display for L4Error {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1497,7 +1635,7 @@ mod l4 {
                     max: self.cfg.max_payload,
                 });
             }
-            let mut guard = self.inner.lock().expect("offline mutex poisoned");
+            let mut guard = crate::lock(&self.inner);
 
             if !guard.contains_key(&dst) && guard.len() >= self.cfg.max_recipients {
                 return Err(L4Error::RecipientLimit {
@@ -1521,7 +1659,7 @@ mod l4 {
             if !self.cfg.enabled {
                 return Err(L4Error::Disabled);
             }
-            let mut guard = self.inner.lock().expect("offline mutex poisoned");
+            let mut guard = crate::lock(&self.inner);
             let Some(q) = guard.get_mut(&dst) else {
                 return Ok(Vec::new());
             };
@@ -1543,8 +1681,8 @@ mod l4 {
             if !self.cfg.enabled {
                 return 0;
             }
-            let ttl = Duration::from_secs(self.cfg.ttl_secs.max(1));
-            let mut guard = self.inner.lock().expect("offline mutex poisoned");
+            let ttl = Duration::from_secs(self.cfg.ttl_secs);
+            let mut guard = crate::lock(&self.inner);
             let mut removed = 0usize;
             guard.retain(|_, q| {
                 let before = q.len();
@@ -1556,12 +1694,7 @@ mod l4 {
         }
 
         pub fn depth(&self) -> usize {
-            self.inner
-                .lock()
-                .expect("offline mutex poisoned")
-                .values()
-                .map(|q| q.len())
-                .sum()
+            crate::lock(&self.inner).values().map(|q| q.len()).sum()
         }
     }
 
@@ -1612,7 +1745,7 @@ mod l4 {
             if name.is_empty() {
                 return Err(L4Error::NotFound);
             }
-            let mut guard = self.inner.lock().expect("groups mutex poisoned");
+            let mut guard = crate::lock(&self.inner);
             if guard.contains_key(name) {
                 return Err(L4Error::AlreadyExists);
             }
@@ -1632,7 +1765,7 @@ mod l4 {
             if !self.cfg.enabled {
                 return Err(L4Error::Disabled);
             }
-            let mut guard = self.inner.lock().expect("groups mutex poisoned");
+            let mut guard = crate::lock(&self.inner);
             let Some(g) = guard.get_mut(name) else {
                 return Err(L4Error::NotFound);
             };
@@ -1660,7 +1793,7 @@ mod l4 {
                     max: self.cfg.max_payload,
                 });
             }
-            let mut guard = self.inner.lock().expect("groups mutex poisoned");
+            let mut guard = crate::lock(&self.inner);
             let Some(g) = guard.get_mut(name) else {
                 return Err(L4Error::NotFound);
             };
@@ -1681,7 +1814,7 @@ mod l4 {
             if !self.cfg.enabled {
                 return Err(L4Error::Disabled);
             }
-            let mut guard = self.inner.lock().expect("groups mutex poisoned");
+            let mut guard = crate::lock(&self.inner);
             let Some(g) = guard.get_mut(name) else {
                 return Err(L4Error::NotFound);
             };
@@ -1731,7 +1864,7 @@ mod l4 {
             if !self.cfg.enabled {
                 return;
             }
-            let mut guard = self.seen.lock().expect("directory mutex poisoned");
+            let mut guard = crate::lock(&self.seen);
             guard.insert(hash, Instant::now());
         }
 
@@ -1740,7 +1873,7 @@ mod l4 {
             if !self.cfg.enabled {
                 return Err(L4Error::Disabled);
             }
-            let guard = self.seen.lock().expect("directory mutex poisoned");
+            let guard = crate::lock(&self.seen);
             match guard.get(&hash) {
                 None => Ok((false, None)),
                 Some(t) => Ok((true, Some(t.elapsed().as_secs() / 60 * 60))),
@@ -1752,8 +1885,8 @@ mod l4 {
             if !self.cfg.enabled {
                 return 0;
             }
-            let ttl = Duration::from_secs(self.cfg.ttl_secs.max(1));
-            let mut guard = self.seen.lock().expect("directory mutex poisoned");
+            let ttl = Duration::from_secs(self.cfg.ttl_secs);
+            let mut guard = crate::lock(&self.seen);
             let before = guard.len();
             guard.retain(|_, t| t.elapsed() < ttl);
             before - guard.len()
@@ -1955,6 +2088,7 @@ mod control {
 
     #[derive(Deserialize)]
     #[serde(tag = "op", rename_all = "snake_case")]
+    #[serde(deny_unknown_fields)]
     enum Req {
         Auth {
             token: String,
@@ -1994,6 +2128,9 @@ mod control {
     #[derive(Serialize)]
     struct Resp {
         ok: bool,
+        /// 稳定的机器可读码。机器客户端只认这个；error 字段是给人看的，可本地化。
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_code: Option<&'static str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -2004,32 +2141,42 @@ mod control {
         fn ok(data: serde_json::Value) -> Self {
             Self {
                 ok: true,
+                error_code: None,
                 error: None,
                 data: Some(data),
             }
         }
+        /// 请求本身不合法（形状、字段类型），无领域错误码。
         fn err(e: impl std::fmt::Display) -> Self {
             Self {
                 ok: false,
+                error_code: Some("bad_request"),
                 error: Some(e.to_string()),
                 data: None,
             }
         }
     }
 
-    fn e(e: L4Error) -> Resp {
-        Resp::err(e)
+    fn e(err: L4Error) -> Resp {
+        Resp {
+            ok: false,
+            error_code: Some(err.code()),
+            error: Some(err.to_string()),
+            data: None,
+        }
     }
 
     /// 常数时间比较，避免按字节短路泄露口令前缀。
     fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-        if a.len() != b.len() {
-            return false;
-        }
+        // 长度不同也走完整轮比较：用耗时去区分长度差本身就是侧信道。
+        let n = a.len().max(b.len());
         let mut acc: u8 = 0;
-        for (x, y) in a.iter().zip(b.iter()) {
+        for i in 0..n {
+            let x = a.get(i).copied().unwrap_or(0);
+            let y = b.get(i).copied().unwrap_or(0);
             acc |= x ^ y;
         }
+        acc |= (a.len() != b.len()) as u8;
         acc == 0
     }
 
@@ -2041,6 +2188,7 @@ mod control {
     ) -> std::io::Result<Option<usize>> {
         out.clear();
         loop {
+            // 只 fill_buf 一次：两次调用之间缓冲区可能被改写，chunk_len 就会失配。
             let (chunk_len, hit_newline) = {
                 let available = r.fill_buf().await?;
                 if available.is_empty() {
@@ -2172,7 +2320,14 @@ mod control {
         w: &mut W,
         r: &Resp,
     ) -> std::io::Result<()> {
-        let mut out = serde_json::to_vec(r).unwrap_or_else(|_| b"{\"ok\":false}".to_vec());
+        // 序列化失败不能静默替换成假响应：那会把内部错误伪装成服务端拒绝。
+        let mut out = match serde_json::to_vec(r) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(error = %err, "控制面响应序列化失败");
+                br#"{"ok":false,"error_code":"internal"}"#.to_vec()
+            }
+        };
         out.push(b'\n');
         w.write_all(&out).await?;
         w.flush().await
@@ -2424,7 +2579,7 @@ struct IpGuard<'a> {
 
 impl Drop for IpGuard<'_> {
     fn drop(&mut self) {
-        let mut g = self.map.lock().expect("per_ip mutex poisoned");
+        let mut g = crate::lock(self.map);
         if let Some(n) = g.get_mut(&self.ip) {
             *n = n.saturating_sub(1);
             if *n == 0 {
@@ -2478,14 +2633,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "version contract"
     );
     info!(
-        profile = cfg.profile.as_str(),
+        profile = cfg.profile.display_name(),
         listen = %cfg.listen,
         control = ?cfg.control_listen,
         directory = cfg.directory.enabled,
         "starting ZT-DSP relay (no decryption)"
     );
     if cfg.directory.enabled {
-        warn!("identity directory enabled: deviates from spec line 979");
+        warn!(
+            "identity directory enabled: this is pairing metadata, which the specification forbids"
+        );
     }
 
     let metrics = Arc::new(Metrics::default());
@@ -2544,6 +2701,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // 配置不合法就不进入监听：宁可启动失败，也不要在运行期悄悄改写调用方给的值
+    if let Err(reason) = cfg.validate() {
+        return Err(format!("配置校验失败: {reason}").into());
+    }
+
     let listener = TcpListener::bind(cfg.listen).await?;
     info!(addr = %cfg.listen, "data plane listening");
 
@@ -2551,7 +2713,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
             Err(err) => {
-                warn!(error = %err, "accept failed");
+                // 不退避的话，EMFILE 之类的瞬时错误会变成满速重试
+                warn!(error = %err, "accept failed, backing off");
+                tokio::time::sleep(Duration::from_millis(50)).await;
                 continue;
             }
         };
@@ -2562,7 +2726,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Metrics::inc(&shared.metrics.rejected_silent);
             // 过载也不得直接 FIN：与其它拒绝路径保持同样的静默观感与时长。
             // 但挂起任务数必须有上限，否则洪泛时任务数会失控。
-            let d = Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1));
+            let d = Duration::from_secs(shared.cfg.handshake_timeout_secs);
             if let Ok(permit) = Arc::clone(&shared.drain_limit).try_acquire_owned() {
                 let mut s = stream;
                 tokio::spawn(async move {
@@ -2592,7 +2756,7 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
     let ip = peer.ip();
     let denied = {
         let limit = shared.cfg.max_per_ip;
-        let mut map = shared.per_ip.lock().expect("per_ip mutex poisoned");
+        let mut map = crate::lock(&shared.per_ip);
         let entry = map.entry(ip).or_insert(0);
         if limit > 0 && *entry >= limit {
             true
@@ -2611,7 +2775,7 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
         ip,
     };
 
-    let deadline = Instant::now() + Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1));
+    let deadline = Instant::now() + Duration::from_secs(shared.cfg.handshake_timeout_secs);
 
     let my_frame = match read_phase1(&mut stream, deadline).await {
         Ok(f) => f,
@@ -2646,7 +2810,7 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
             drop(ip_guard);
         }
         Outcome::Waiting { rx, ticket } => {
-            let lobby_timeout = Duration::from_secs(shared.cfg.lobby_timeout_secs.max(1));
+            let lobby_timeout = Duration::from_secs(shared.cfg.lobby_timeout_secs);
             match timeout(lobby_timeout, rx).await {
                 Ok(Ok(handoff)) => {
                     Metrics::inc(&shared.metrics.paired);
@@ -2657,9 +2821,10 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
                     }
 
                     let mut peer_stream = handoff.payload;
+                    let phase1_replay = Duration::from_secs(shared.cfg.handshake_timeout_secs);
                     let written = async {
-                        write_frame(&mut peer_stream, &my_frame).await?;
-                        write_frame(&mut stream, &handoff.frame).await?;
+                        write_frame(&mut peer_stream, &my_frame, phase1_replay).await?;
+                        write_frame(&mut stream, &handoff.frame, phase1_replay).await?;
                         Ok::<(), std::io::Error>(())
                     }
                     .await;
@@ -2680,12 +2845,9 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
                         },
                         write_timeout: Some(Duration::from_secs(30)),
                     };
-                    match relay_pair(stream, peer_stream, opts, &shared.metrics).await {
-                        Ok((ab, ba, cause)) => {
-                            debug!(peer = %peer, ab, ba, ?cause, "relay finished")
-                        }
-                        Err(err) => debug!(peer = %peer, error = %err, "relay failed"),
-                    }
+                    let (ab, ba, cause) =
+                        relay_pair(stream, peer_stream, opts, &shared.metrics).await;
+                    debug!(peer = %peer, ab, ba, ?cause, "relay finished");
                     shared.metrics.active_pairs.fetch_sub(1, Ordering::Relaxed);
                     drop(ip_guard);
                 }
@@ -2704,12 +2866,16 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
 async fn drain_like_handshake(stream: &mut TcpStream, shared: &Shared) {
     let _ = silent::drain_silently(
         stream,
-        Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1)),
+        Duration::from_secs(shared.cfg.handshake_timeout_secs),
     )
     .await;
 }
 
-async fn write_frame(s: &mut TcpStream, f: &Phase1Frame) -> std::io::Result<()> {
-    s.write_all(&f.raw).await?;
-    s.flush().await
+async fn write_frame(s: &mut TcpStream, f: &Phase1Frame, timeout: Duration) -> std::io::Result<()> {
+    tokio::time::timeout(timeout, async {
+        s.write_all(&f.raw).await?;
+        s.flush().await
+    })
+    .await
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "phase1 replay timed out"))?
 }
