@@ -94,9 +94,9 @@ cargo build --release
 
 | 步骤 | 规范要求 | 本实现 |
 |---|---|---|
-| 1. 参数核对 | 形状不符即拒 | 长度与结构校验（`src/frame.rs`） |
+| 1. 参数核对 | 形状不符即拒 | 长度与结构校验（`src/main.rs, mod frame`） |
 | 2. 令牌验证 | TCA 签名 + CRL | **不实现** —— 属 TCA/CRL 角色 |
-| 3. 等候池匹配 | 查找持有 H(Token_A) 的住客 | `src/lobby.rs` |
+| 3. 等候池匹配 | 查找持有 H(Token_A) 的住客 | `src/main.rs, mod lobby` |
 | 4. 等候池管理 | 30 秒自动清除、不广播 | `lobby_timeout_secs` + `Lobby::withdraw` / `Lobby::sweep` |
 
 配对判据是**双向匹配**：
@@ -124,15 +124,11 @@ cargo build --release
 ## 目录
 
 ```
-src/frame.rs     线上格式（附录 F）；只解释阶段一身份与阶段四头
-src/lobby.rs     等候池配对；双向匹配、30 秒超时、连接交接
-src/silent.rs    严格静默丢弃
-src/relay.rs     双向字节中继
-src/l4.rs        离线消息 / 群组 / 身份目录
-src/control.rs   L4 控制面（JSON Lines over TCP）
-src/config.rs    三档配置（附录 B.2）
-src/main.rs      监听、限流、连接生命周期
-tests/           端到端与 L3/L4 场景
+src/main.rs      单文件实现；内联模块：
+                 version（版本契约）frame（附录 F）lobby（配对）
+                 silent（静默丢弃）relay（字节中继）config（B.2 三档）
+                 l4（离线 / 群组 / 目录）control（JSON Lines）metrics util
+tests/           integration.rs（随 cargo test 运行）+ 两个手动验收脚本
 docs/            架构、一致性、控制面、威胁模型、部署
 ```
 

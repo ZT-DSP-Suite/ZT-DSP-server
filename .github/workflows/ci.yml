@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (c) 2026 ZT-DSP Suite contributors
+#
+# 每个架构各用一次原生 runner，真正把两个 target 编出来 ——
+# 这是 PR 描述里「aarch64 与 x86_64 均构建通过」这句话的出处。
+#
+# 刻意不用 pull_request_target：那会让 fork 的 PR 拿到本仓 secrets。
+# 本工作流不引用任何 secrets。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            machine: "X86-64"
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            machine: "AArch64"
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+
+      - name: rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.10.0
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: format
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: test
+        run: cargo test --locked
+
+      - name: release build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: assert the binary really is ${{ matrix.machine }}
+        run: |
+          BIN=target/${{ matrix.target }}/release/zt-dsp-server
+          ls -l "$BIN"
+          readelf -h "$BIN" | grep Machine
+          readelf -h "$BIN" | grep -q "${{ matrix.machine }}"
+
+      - name: version contract
+        run: |
+          OUT=$(target/${{ matrix.target }}/release/zt-dsp-server --version)
+          echo "$OUT"
+          echo "$OUT" | grep -q 'ZT-DSP_SV-1.0.0'

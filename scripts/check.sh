@@ -124,6 +124,25 @@ if load 'stale-doc-symbols' 'docs/*.md'; then
        'parse_phase4_header|TokenHash::hex_prefix|LOBBY_TIMEOUT|Phase4Header' none
 fi
 
+echo '== 6. single-file implementation =='
+# 收录口径：一实现一文件，src/ 下只允许一个 .rs
+n=$(find src -maxdepth 1 -name '*.rs' -type f | wc -l | tr -d ' ')
+if [ "$n" -ne 1 ]; then
+  bad "src/ must contain exactly one .rs file, found $n"
+else
+  note 'src/main.rs is the only source file'
+fi
+
+echo '== 7. version contract =='
+vc=0
+for sym in FOLLOWS_DOC FOLLOWS_DOC_PATH APPLIES_TO_DOC_VERSIONS IMPLEMENTATION_ID; do
+  if ! grep -q "pub const $sym" src/main.rs; then
+    bad "version contract missing: $sym"
+    vc=$((vc + 1))
+  fi
+done
+[ $vc -eq 0 ] && note 'version contract declared'
+
 echo
 if [ $fails -ne 0 ]; then
   printf 'check.sh: FAILED (%d)\n' "$fails"

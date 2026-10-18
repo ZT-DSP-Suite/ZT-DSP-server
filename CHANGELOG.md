@@ -29,6 +29,22 @@ governing change history is `git log`. If the two ever disagree, `git log` wins.
 
 ### Changed
 
+- **Source consolidated into a single file** (`src/main.rs`), per the collection rule in
+  `ZT-DSP-client/cn/README.md`: one implementation is one file, and the mainline directory
+  does not grow a directory tree. Module boundaries are kept as inline `mod` blocks, and
+  their `pub` surface is narrowed accordingly.
+- **Version contract declared** in `src/main.rs` (`mod version`): `FOLLOWS_DOC`,
+  `FOLLOWS_DOC_PATH`, `APPLIES_TO_DOC_VERSIONS`, plus `IMPLEMENTATION_ID` and
+  `format_version()`. The same shape as `zt_dsp_py/version.py` and `zt_dsp_rs/version.rs`,
+  with a role prefix (`SV`) instead of a language prefix. `--version` and the startup
+  banner read from it.
+- **CI added** (`.github/workflows/ci.yml`): a matrix of native `ubuntu-24.04` and
+  `ubuntu-24.04-arm` runners, each building its own target, running fmt, clippy, tests,
+  a release build, and asserting the produced binary's `readelf` machine matches. This is
+  what makes the "both targets build" claim checkable; actions are pinned to commit SHAs
+  and no secrets are referenced.
+- `scripts/check.sh` gained two checks: `src/` must contain exactly one `.rs` file, and
+  the version contract symbols must be present.
 - `README.md`, `cn/README.md`, `en/README.md` rewritten from placeholder text to describe
   the implemented server, with a conformance table pointing at the specification.
 - `scripts/check.sh` rewritten: it previously rejected any `.rs`/`.toml`/`.py` file and

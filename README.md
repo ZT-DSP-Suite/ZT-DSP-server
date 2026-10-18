@@ -96,16 +96,13 @@ operational guidance.
 ## Repository map
 
 ```
-src/frame.rs     wire format (Appendix F); only the phase-1 identity and
-                 phase-4 header are interpreted
-src/lobby.rs     waiting-pool pairing; mutual match, 30 s timeout
-src/silent.rs    silent-drop contract
-src/relay.rs     bidirectional byte relay
-src/l4.rs        offline store / groups / directory
-src/control.rs   L4 control plane (JSON Lines over TCP)
-src/config.rs    three profile tiers (Appendix B.2)
-src/main.rs      listener, per-IP limits, connection lifecycle
-tests/           end-to-end and L3/L4 scenarios
+src/main.rs      single-file implementation; inline modules:
+                 version (contract) fence (Appendix F) lobby (pairing)
+                 silent (silent drop) relay (byte relay) config (B.2 tiers)
+                 l4 (offline / groups / directory) control (JSON Lines)
+                 metrics util
+tests/           integration.rs (runs under cargo test) plus two manual scripts
+docs/            architecture, conformance, control API, threat model, deployment
 ```
 
 ## Security

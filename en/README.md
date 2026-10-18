@@ -103,9 +103,9 @@ and the process exits without one.
 
 | Step | Spec | Implementation |
 |---|---|---|
-| 1. Parameter check | reject on shape mismatch | length/structure validation (`src/frame.rs`) |
+| 1. Parameter check | reject on shape mismatch | length/structure validation (`src/main.rs, mod frame`) |
 | 2. Token verification | TCA signature + CRL | **not implemented** — TCA/CRL role |
-| 3. Lobby matching | find a resident holding H(Token_A) | `src/lobby.rs` |
+| 3. Lobby matching | find a resident holding H(Token_A) | `src/main.rs, mod lobby` |
 | 4. Lobby management | 30 s auto-clear, no broadcast | `lobby_timeout_secs`, `Lobby::withdraw`, `Lobby::sweep` |
 
 Pairing predicate — **mutual match**:
@@ -134,15 +134,12 @@ Full operator capability statement: [`../docs/THREAT-MODEL.md`](../docs/THREAT-M
 ## Layout
 
 ```
-src/frame.rs     wire format (Appendix F); only phase-1 identity and phase-4 header
-src/lobby.rs     waiting-pool pairing; mutual match, 30 s timeout, connection handoff
-src/silent.rs    strict silent drop
-src/relay.rs     bidirectional byte relay
-src/l4.rs        offline store / groups / directory
-src/control.rs   L4 control plane (JSON Lines over TCP)
-src/config.rs    three profile tiers (Appendix B.2)
-src/main.rs      listener, per-IP limits, connection lifecycle
-tests/           end-to-end and L3/L4 scenarios
+src/main.rs      single-file implementation; inline modules:
+                 version (contract) fence (Appendix F) lobby (pairing)
+                 silent (silent drop) relay (byte relay) config (B.2 tiers)
+                 l4 (offline / groups / directory) control (JSON Lines)
+                 metrics util
+tests/           integration.rs (runs under cargo test) plus two manual scripts
 docs/            architecture, conformance, control API, threat model, deployment
 ```
 
