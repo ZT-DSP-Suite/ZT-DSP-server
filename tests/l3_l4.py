@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-# 验证两件事：静默丢弃契约、L4 控制面。
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# 手动验收：静默丢弃 + L4 控制面（强制鉴权）。自动化回归见 tests/integration.rs。
 import json, socket, struct, subprocess, time, sys
 
 PORT, CPORT = 17453, 17454
+TOKEN = 'test-token-please-rotate'
 
 def start():
     p = subprocess.Popen(['./target/debug/zt-dsp-server',
                           '--listen', f'127.0.0.1:{PORT}',
                           '--control', f'127.0.0.1:{CPORT}',
+                          '--control-token', TOKEN,
                           '--profile', 'beginner'],
                          stderr=subprocess.PIPE)
     time.sleep(1.2)
     return p
 
 def test_silent_drop():
-    """非法长度前缀 → 服务器不回一个字节，也不立刻 RST。"""
     s = socket.create_connection(('127.0.0.1', PORT))
-    s.sendall(struct.pack('>I', 99999))          # param_len 远超 4096
+    s.sendall(struct.pack('>I', 99999))
     s.settimeout(2.5)
-    t0 = time.time()
     try:
         data = s.recv(4096)
         assert data == b'', f'静默丢弃失败：服务器回了 {len(data)} 字节'
@@ -45,40 +46,48 @@ def test_control():
     h2 = 'cd' * 32
 
     r = call(c, {'op': 'ping'})
+    assert r['ok'] is False, '未鉴权竟然能 ping'
+    print('  [2] 未鉴权请求被拒绝 OK')
+
+    r = call(c, {'op': 'auth', 'token': 'wrong'})
+    assert r['ok'] is False
+    print('  [3] 错误口令被拒绝 OK')
+
+    r = call(c, {'op': 'auth', 'token': TOKEN})
+    assert r['ok'] and r['data']['authed']
+    print('  [4] 正确口令通过 OK')
+
+    r = call(c, {'op': 'ping'})
     assert r['ok'] and r['data']['pong']
-    print('  [2] 控制面 ping OK')
+    print('  [5] ping OK')
 
     r = call(c, {'op': 'offline_push', 'dst': h, 'payload': 'deadbeef'})
     assert r['ok'], r
-    print('  [3] 离线消息入库 OK')
-
     r = call(c, {'op': 'offline_pull', 'dst': h})
     assert r['ok'] and r['data']['items'] == ['deadbeef'], r
-    print('  [4] 离线消息取回且内容一致 OK')
+    print('  [6] 离线消息存取一致 OK')
 
     r = call(c, {'op': 'group_create', 'name': 'g1', 'owner': h})
     assert r['ok'], r
+    r = call(c, {'op': 'group_create', 'name': 'g1', 'owner': h})
+    assert r['ok'] is False, '重复创建必须报错'
+    print('  [7] 群组创建 + 重复创建被拒 OK')
+
     r = call(c, {'op': 'group_join', 'name': 'g1', 'member': h2})
     assert r['ok'], r
     r = call(c, {'op': 'group_send', 'name': 'g1', 'sender': h, 'payload': 'cafe'})
     assert r['ok'], r
     r = call(c, {'op': 'group_pull', 'name': 'g1', 'member': h2})
     assert r['ok'] and r['data']['items'][0]['payload'] == 'cafe', r
-    print('  [5] 群组广播 + 游标拉取 OK')
+    print('  [8] 群组广播 + 游标拉取 OK')
 
-    # 默认档位禁止任意哈希查询（抗流量分析），这是刻意设计的隐私默认
     r = call(c, {'op': 'dir_lookup', 'hash': h})
     assert r['ok'] is False and '关闭' in r['error'], r
-    print('  [6] 身份目录默认拒绝任意查询（隐私默认）OK')
-
-    # 明确开启后才允许查，且时间必须被粗化
-    r = call(c, {'op': 'dir_lookup', 'hash': h})
-    assert r['ok'] is False
-    print('  [6b] 非授权调用者始终拿不到结果 OK')
+    print('  [9] 身份目录默认关闭 OK')
 
     r = call(c, {'op': 'stats'})
-    assert r['ok']
-    print(f"  [7] 统计 OK: accepted={r['data']['accepted']} paired={r['data']['paired']}")
+    assert r['ok'] and 'active_conns' in r['data']
+    print(f"  [10] 统计 OK: accepted={r['data']['accepted']}")
     c.close()
 
 p = start()

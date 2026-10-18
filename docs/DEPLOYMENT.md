@@ -38,7 +38,13 @@ Data plane only. No control plane, no storage, no state.
   --config /etc/zt-dsp/server.json
 ```
 
-Keep the control plane on loopback unless you have a separate authenticated network.
+The token is mandatory whenever `--control` is given; the process exits immediately
+otherwise. Keep the control plane on loopback unless you have a separate authenticated
+network.
+
+**Reverse proxies:** the per-IP limit uses the socket peer address. Behind a proxy every
+connection appears to come from the proxy, so the limit becomes global. Either terminate
+connections directly, or raise `max_per_ip` deliberately.
 
 ## 4. systemd unit
 
@@ -102,7 +108,7 @@ WantedBy=multi-user.target
   "buffer_bytes": 32768,
   "offline": { "enabled": true, "max_payload": 262144, "max_per_recipient": 100, "ttl_secs": 604800 },
   "group":   { "enabled": true, "max_members": 256, "max_payload": 262144 },
-  "directory": { "enabled": true, "allow_arbitrary_lookup": false }
+  "directory": { "enabled": false, "ttl_secs": 3600 }
 }
 ```
 

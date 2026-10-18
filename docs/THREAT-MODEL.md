@@ -9,10 +9,16 @@ These follow structurally from the design, not from policy:
 
 | Capability | Why not |
 |---|---|
-| Read message content | The server never holds a session key. Phases 2–4 are opaque bytes. |
+| Read message content | The server never holds a session key; phases 2–4 are opaque bytes. This is structural, not policy. |
 | Forge or replay a session | It cannot produce a valid phase-3 tag without the key. |
-| Learn who is talking to whom from payloads | The only identifiers are token hashes, which are one-way. |
+| Recover plaintext from a stored envelope | Offline envelopes are the client's ciphertext; the server has no key for them. |
 | Learn the transcript | It never hashes or re-encodes the frames. |
+| Decide *content* by padding analysis | Padding and timing shaping are client responsibilities (Appendix G); the server does not add or strip it. |
+
+| Capability it **does** have | Consequence |
+|---|---|
+| Learn that two token hashes were paired, and when | This is unavoidable for a relay: it must read the hashes to route. Mitigation is retention discipline, not denial. |
+| Link a source IP to a token hash | The connection's IP is visible at accept time. Use of an anonymity network in front of the server is a client decision. |
 
 ## 2. What the operator *can* do
 
@@ -68,8 +74,9 @@ By default:
 |---|---|
 | Connection metrics | In memory, aggregate only |
 | Offline envelopes | `offline.ttl_secs` (1 day beginner, 7 days advanced, disabled for high-anonymity) |
+| Presence records | Only if the operator opts in; otherwise nothing is recorded |
 | Group log | In memory, capped, lost on restart |
-| Directory rows | In memory, swept after 24 h |
+| Directory rows | In memory, swept after `directory.ttl_secs` (default 1 h); the feature is off by default |
 | Logs | stderr; no token hashes, no session ids, no payloads |
 
 Nothing is written to disk by the server itself.

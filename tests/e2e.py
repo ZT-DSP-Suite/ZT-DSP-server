@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # 端到端验证：真实 TCP 连服务端，模拟两个客户端完成阶段一配对并互发数据。
 import socket, struct, subprocess, sys, time, os
 

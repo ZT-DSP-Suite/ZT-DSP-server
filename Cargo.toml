@@ -1,11 +1,11 @@
 [package]
 name = "zt-dsp-server"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.80"
 description = "ZT-DSP 1.0.1 server: pairing and byte relay; the server never decrypts"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/ZT-DSP-Suite/ZT-DSP-Server"
+repository = "https://github.com/ZT-DSP-Suite/ZT-DSP-server"
 readme = "README.md"
 
 [[bin]]

@@ -24,10 +24,15 @@ the ZT-DSP wire format. With it disabled (no `--control`), the server is a pure 
 
 Rules:
 
-1. If `--control-token` is set, the first request on every connection **must** be `auth`.
-   All other operations return `{"ok":false,"error":"未鉴权…"}`.
-2. If no token is configured, the control plane only starts when bound to a loopback
-   address. Binding to a non-loopback address without a token is refused at startup.
+0. **The token is mandatory.** The control plane refuses to start without
+   `--control-token`. There is no unauthenticated mode and no loopback exemption.
+1. The first request on every connection must be `auth`; every other operation then
+   returns `{"ok":false,...}` until it succeeds.
+2. Five failed attempts on one connection close it. Comparison is constant-time.
+3. The control connection has its own concurrency cap, idle timeout and line-length cap.
+
+
+
 
 Treat the token as a full administrative credential: it can read group logs and drain
 offline queues.
@@ -131,12 +136,14 @@ second call empty.
 ← {"ok":true,"data":{"alive":true,"ago_secs":120}}
 ```
 
-**Disabled by default.** The directory answers only "has this hash been seen recently",
-never "who is this". Timings are floored to whole minutes to blunt fingerprinting.
+**Disabled by default in every profile.** The directory answers only "has this hash been
+seen recently", never "who is this". Timings are floored to whole minutes.
 
-To enable it, set `directory.allow_arbitrary_lookup: true` in the config file. Enabling
-it turns the server into a presence oracle; every deployment should weigh that against
-its threat model. The `high-anonymity` profile keeps the whole directory off.
+It is off by default because it records exactly what specification line 979 forbids: the
+appearance of a token hash, i.e. pairing metadata. Enabling it (`directory.enabled`) is an
+operator decision that deviates from that requirement; the server logs a warning at
+startup when it is on. Access control is the control-plane token — there is no separate
+per-caller opt-in.
 
 ## Limits and failure modes
 

@@ -86,12 +86,18 @@ With the control plane (recommended in production — always set a token):
 
 | Profile | Concurrent | Per-IP | Offline | Groups | Directory | Idle timeout |
 |---|---|---|---|---|---|---|
-| `beginner` | 2000 | 32 | 1 day | 32 members | on | none |
-| `advanced` | 20000 | 128 | 7 days | 256 members | on | none |
+| `beginner` | 2000 | 32 | 1 day | 32 members | **off** | none |
+| `advanced` | 20000 | 128 | 7 days | 256 members | **off** | none |
 | `high-anonymity` | 500 | 4 | **off** | **off** | **off** | 300 s |
 
-The high-anonymity tier disables every store. That is a deliberate privacy default,
-not an unfinished feature.
+The identity directory is off in **every** profile: it records when a token hash
+appeared, which is pairing metadata and therefore forbidden by specification line 979.
+Enabling it is an explicit operator decision that deviates from that requirement; the
+server logs a warning at startup when it is on. The high-anonymity tier additionally
+disables offline storage and groups.
+
+The L4 control plane is not listening by default; when enabled, a token is **mandatory**
+and the process exits without one.
 
 ## Server processing flow (§4.2)
 
@@ -100,7 +106,7 @@ not an unfinished feature.
 | 1. Parameter check | reject on shape mismatch | length/structure validation (`src/frame.rs`) |
 | 2. Token verification | TCA signature + CRL | **not implemented** — TCA/CRL role |
 | 3. Lobby matching | find a resident holding H(Token_A) | `src/lobby.rs` |
-| 4. Lobby management | 30 s auto-clear, no broadcast | `LOBBY_TIMEOUT`, `withdraw`, `sweep` |
+| 4. Lobby management | 30 s auto-clear, no broadcast | `lobby_timeout_secs`, `Lobby::withdraw`, `Lobby::sweep` |
 
 Pairing predicate — **mutual match**:
 

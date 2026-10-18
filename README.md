@@ -60,7 +60,8 @@ cargo build --release
 ./target/release/zt-dsp-server --listen 0.0.0.0:7443
 ```
 
-With the control plane enabled (recommended in production — set a token):
+With the control plane enabled (the token is mandatory — the process refuses to start
+without it):
 
 ```bash
 ./target/release/zt-dsp-server \

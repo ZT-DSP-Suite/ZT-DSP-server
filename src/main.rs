@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (c) 2026 ZT-DSP Suite contributors
 
-//! ZT-DSP 1.0.1 服务端。
-//!
-//! 酒店前台模型：登记 → 配对 → 转发，**全程不解密**。
-//! 数据面严格遵循附录 F；L4 扩展走独立控制面，不污染线上协议。
+//! ZT-DSP 1.0.1 服务端：登记 → 配对 → 中继，全程不解密。
 
 mod config;
 mod control;
@@ -38,6 +35,8 @@ use crate::lobby::{Handoff, Lobby, Outcome};
 use crate::metrics::Metrics;
 use crate::relay::{relay_pair, RelayOpts};
 
+/// 程序版本串，运行期以 `ZT-DSP · ZT-DSP_SV-<version>` 形式打印一次。
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum ProfileArg {
     Beginner,
@@ -56,29 +55,22 @@ impl From<ProfileArg> for Profile {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "zt-dsp-server", version, about = "ZT-DSP 1.0.1 服务端（配对 + 中继，不解密）")]
+#[command(name = "zt-dsp-server", version, about = "ZT-DSP 1.0.1 server")]
 struct Args {
-    /// 数据面监听地址
-    #[arg(long, default_value = "0.0.0.0:7443")]
-    listen: SocketAddr,
-    /// 控制面监听地址（L4 扩展）；不给则关闭
+    #[arg(long)]
+    listen: Option<SocketAddr>,
     #[arg(long)]
     control: Option<SocketAddr>,
-    /// 配置档位
     #[arg(long, value_enum, default_value = "beginner")]
     profile: ProfileArg,
-    /// JSON 配置文件（覆盖档位默认值）
     #[arg(long)]
     config: Option<PathBuf>,
-    /// 控制面鉴权口令；只对 127.0.0.1 绑定时可不设
     #[arg(long, env = "ZT_DSP_CONTROL_TOKEN")]
     control_token: Option<String>,
-    /// 打印最终配置后退出
     #[arg(long)]
     dump_config: bool,
 }
 
-/// 全进程共享状态。
 struct Shared {
     cfg: Config,
     lobby: Lobby<TcpStream>,
@@ -88,7 +80,14 @@ struct Shared {
     per_ip: Mutex<HashMap<IpAddr, usize>>,
 }
 
-/// 单 IP 计数守卫：连接结束自动减一。
+struct ConnGuard(Arc<Metrics>);
+
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        self.0.active_conns.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 struct IpGuard<'a> {
     map: &'a Mutex<HashMap<IpAddr, usize>>,
     ip: IpAddr,
@@ -109,7 +108,9 @@ impl Drop for IpGuard<'_> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_writer(std::io::stderr)
         .init();
 
@@ -119,9 +120,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(p) => Config::load(p)?,
         None => Config::for_profile(args.profile.into()),
     };
-    cfg.listen = args.listen;
-    if args.control.is_some() {
-        cfg.control_listen = args.control;
+    if let Some(l) = args.listen {
+        cfg.listen = l;
+    }
+    if let Some(c) = args.control {
+        cfg.control_listen = Some(c);
     }
 
     if args.dump_config {
@@ -129,11 +132,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    if cfg.control_listen.is_some() && args.control_token.is_none() {
+        return Err("control plane requires --control-token".into());
+    }
+
+    eprintln!("ZT-DSP · ZT-DSP_SV-{}", env!("CARGO_PKG_VERSION"));
     info!(
         profile = cfg.profile.as_str(),
         listen = %cfg.listen,
-        "启动 ZT-DSP 服务端（纯字节中继，不解密）"
+        control = ?cfg.control_listen,
+        directory = cfg.directory.enabled,
+        "starting ZT-DSP relay (no decryption)"
     );
+    if cfg.directory.enabled {
+        warn!("identity directory enabled: deviates from spec line 979");
+    }
 
     let metrics = Arc::new(Metrics::default());
     let offline = Arc::new(OfflineStore::new(cfg.offline.clone()));
@@ -150,82 +163,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     if let Some(caddr) = cfg.control_listen {
-        if caddr.ip().is_loopback() || args.control_token.is_some() {
-            let state = Arc::new(ControlState {
-                offline: Arc::clone(&offline),
-                groups: Arc::clone(&groups),
-                directory: Arc::clone(&directory),
-                metrics: Arc::clone(&metrics),
-                token: args.control_token.clone(),
-            });
-            tokio::spawn(async move {
-                if let Err(err) = control::serve(caddr, state).await {
-                    warn!(error = %err, "控制面启动失败");
-                }
-            });
-        } else {
-            warn!("控制面绑定在非本地地址却没有 --control-token，已拒绝启动（防止未授权访问）");
-        }
+        let token = args.control_token.clone().expect("checked above");
+        let state = Arc::new(ControlState {
+            offline: Arc::clone(&offline),
+            groups: Arc::clone(&groups),
+            directory: Arc::clone(&directory),
+            metrics: Arc::clone(&metrics),
+            token,
+        });
+        tokio::spawn(async move {
+            if let Err(err) = control::serve(caddr, state).await {
+                warn!(error = %err, "control plane failed");
+            }
+        });
     }
 
     {
         let shared = Arc::clone(&shared);
         tokio::spawn(async move {
-            let mut tick = tokio::time::interval(Duration::from_secs(5));
+            let mut lobby_tick = tokio::time::interval(Duration::from_secs(5));
+            let mut offline_tick = tokio::time::interval(Duration::from_secs(60));
+            let mut dir_tick = tokio::time::interval(Duration::from_secs(60));
             loop {
-                tick.tick().await;
-                let swept = shared.lobby.sweep();
-                if swept > 0 {
-                    debug!(swept, "清理等候池僵尸登记");
+                tokio::select! {
+                    _ = lobby_tick.tick() => {
+                        let n = shared.lobby.sweep();
+                        if n > 0 { debug!(n, "lobby sweep"); }
+                    }
+                    _ = offline_tick.tick() => {
+                        let n = shared.offline.sweep();
+                        if n > 0 { debug!(n, "offline sweep"); }
+                    }
+                    _ = dir_tick.tick() => {
+                        let n = shared.directory.sweep();
+                        if n > 0 { debug!(n, "directory sweep"); }
+                    }
                 }
-                let off = shared.offline.sweep();
-                if off > 0 {
-                    debug!(off, "清理过期离线消息");
-                }
-                shared.directory.sweep(Duration::from_secs(86_400));
             }
         });
     }
 
     let listener = TcpListener::bind(cfg.listen).await?;
-    info!(addr = %cfg.listen, "数据面已监听");
+    info!(addr = %cfg.listen, "data plane listening");
 
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
             Err(err) => {
-                warn!(error = %err, "accept 失败");
+                warn!(error = %err, "accept failed");
                 continue;
             }
         };
-        let shared = Arc::clone(&shared);
+
+        if shared.metrics.active_conns.load(Ordering::Relaxed) as usize
+            >= shared.cfg.max_connections
+        {
+            Metrics::inc(&shared.metrics.rejected_silent);
+            // 过载也不得直接 FIN：与其它拒绝路径保持同样的静默观感与同样的时长
+            let mut s = stream;
+            let d = Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1));
+            tokio::spawn(async move {
+                let _ = silent::drain_silently(&mut s, d).await;
+            });
+            continue;
+        }
+        shared.metrics.active_conns.fetch_add(1, Ordering::Relaxed);
+        Metrics::inc(&shared.metrics.accepted);
+
+        let shared2 = Arc::clone(&shared);
         tokio::spawn(async move {
-            handle_conn(stream, peer, shared).await;
+            let _g = ConnGuard(Arc::clone(&shared2.metrics));
+            handle_conn(stream, peer, shared2).await;
         });
     }
 }
 
-/// 连接计数守卫：进入时加一，离开时减一。覆盖**未配对**的连接，
-/// 因此洪泛连接同样计入全局上限。
-struct ConnGuard<'a>(&'a Metrics);
-
-impl Drop for ConnGuard<'_> {
-    fn drop(&mut self) {
-        self.0.active_conns.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
 async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared>) {
-    let _conn_guard = ConnGuard(&shared.metrics);
-    let conns = shared.metrics.active_conns.fetch_add(1, Ordering::Relaxed);
-    Metrics::inc(&shared.metrics.accepted);
     stream.set_nodelay(true).ok();
-
-    if conns as usize >= shared.cfg.max_connections {
-        Metrics::inc(&shared.metrics.rejected_silent);
-        let _ = silent::drain_silently(&mut stream, Duration::from_secs(1)).await;
-        return;
-    }
 
     let ip = peer.ip();
     let denied = {
@@ -241,10 +255,13 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
     };
     if denied {
         Metrics::inc(&shared.metrics.rejected_silent);
-        let _ = silent::drain_silently(&mut stream, Duration::from_secs(1)).await;
+        drain_like_handshake(&mut stream, &shared).await;
         return;
     }
-    let ip_guard = IpGuard { map: &shared.per_ip, ip };
+    let ip_guard = IpGuard {
+        map: &shared.per_ip,
+        ip,
+    };
 
     let deadline = Instant::now() + Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1));
 
@@ -252,31 +269,33 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
         Ok(f) => f,
         Err(err) => {
             Metrics::inc(&shared.metrics.rejected_silent);
-            debug!(peer = %peer, error = %err, "阶段一读取失败（静默丢弃，对端无感）");
-            // 与合法握手失败的对端等待同样的窗口，避免时序可区分
-            let _ = silent::drain_silently(
-                &mut stream,
-                Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1)),
-            )
-            .await;
+            debug!(peer = %peer, error = %err, "phase1 rejected");
+            drain_like_handshake(&mut stream, &shared).await;
             drop(ip_guard);
             return;
         }
     };
-
+    debug!(
+        peer = %peer,
+        frame_len = my_frame.raw_len(),
+        aead = %my_frame.param.aead,
+        "phase1 accepted"
+    );
     let identity = my_frame.identity;
 
     match shared.lobby.register(my_frame.clone()) {
-        Outcome::Matched { peer_frame: _, deliver_to_peer } => {
-            Metrics::inc(&shared.metrics.paired);
-            shared.metrics.active_pairs.fetch_add(1, Ordering::Relaxed);
-            if let Err(back) = deliver_to_peer.send(Handoff { frame: my_frame, payload: stream }) {
-                debug!(peer = %peer, "配对对手已超时退出，丢弃本次连接");
-                drop(back);
-                shared.metrics.active_pairs.fetch_sub(1, Ordering::Relaxed);
+        Outcome::Matched {
+            peer_frame: _,
+            deliver_to_peer,
+        } => {
+            let handed = deliver_to_peer.send(Handoff {
+                frame: my_frame,
+                payload: stream,
+            });
+            if handed.is_err() {
+                debug!(peer = %peer, "initiator already gone");
             }
             drop(ip_guard);
-            return;
         }
         Outcome::Waiting { rx, ticket } => {
             let lobby_timeout = Duration::from_secs(shared.cfg.lobby_timeout_secs.max(1));
@@ -284,7 +303,10 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
                 Ok(Ok(handoff)) => {
                     Metrics::inc(&shared.metrics.paired);
                     shared.metrics.active_pairs.fetch_add(1, Ordering::Relaxed);
-                    shared.directory.touch(identity.dst);
+                    if shared.directory.enabled() {
+                        shared.directory.touch(identity.src);
+                        shared.directory.touch(identity.dst);
+                    }
 
                     let mut peer_stream = handoff.payload;
                     let written = async {
@@ -308,10 +330,13 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
                         } else {
                             None
                         },
+                        write_timeout: Some(Duration::from_secs(30)),
                     };
                     match relay_pair(stream, peer_stream, opts, &shared.metrics).await {
-                        Ok((ab, ba)) => debug!(peer = %peer, ab, ba, "中继结束"),
-                        Err(err) => debug!(peer = %peer, error = %err, "中继异常结束"),
+                        Ok((ab, ba, cause)) => {
+                            debug!(peer = %peer, ab, ba, ?cause, "relay finished")
+                        }
+                        Err(err) => debug!(peer = %peer, error = %err, "relay failed"),
                     }
                     shared.metrics.active_pairs.fetch_sub(1, Ordering::Relaxed);
                     drop(ip_guard);
@@ -319,13 +344,21 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared
                 _ => {
                     shared.lobby.withdraw(ticket);
                     Metrics::inc(&shared.metrics.lobby_timeout);
-                    debug!(peer = %peer, "等候池超时");
-                    let _ = silent::drain_silently(&mut stream, Duration::from_secs(1)).await;
+                    debug!(peer = %peer, "lobby timeout");
+                    drain_like_handshake(&mut stream, &shared).await;
                     drop(ip_guard);
                 }
             }
         }
     }
+}
+
+async fn drain_like_handshake(stream: &mut TcpStream, shared: &Shared) {
+    let _ = silent::drain_silently(
+        stream,
+        Duration::from_secs(shared.cfg.handshake_timeout_secs.max(1)),
+    )
+    .await;
 }
 
 async fn write_frame(s: &mut TcpStream, f: &Phase1Frame) -> std::io::Result<()> {

@@ -76,6 +76,9 @@ mod tests {
         let t0 = std::time::Instant::now();
         let n = drain_silently(&mut a, Duration::from_secs(10)).await;
         assert_eq!(n, 0);
-        assert!(t0.elapsed() < Duration::from_secs(2), "对端关闭应立即返回，不该干等 10 秒");
+        assert!(
+            t0.elapsed() < Duration::from_secs(2),
+            "对端关闭应立即返回，不该干等 10 秒"
+        );
     }
 }

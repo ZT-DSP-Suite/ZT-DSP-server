@@ -3,16 +3,18 @@
 
 //! L4 控制面：JSON Lines over TCP。
 //!
-//! **与数据面完全隔离** —— 它不碰 ZT-DSP 线上帧，因此不影响与现有客户端的互操作。
-//! 默认只绑 127.0.0.1；若配置了 token，第一条消息必须先鉴权。
+//! 与数据面完全隔离，不碰 ZT-DSP 线上帧。**默认关闭**，且启用时强制要求口令。
 //!
-//! 所有 payload 都是**不透明十六进制字节**：服务器不解密、不解析。
+//! 访问控制只有口令校验，没有按令牌的身份绑定 —— 因此本控制面按设计仅供
+//! 运营者自己使用（运维脚本、管理端的账号体系在外层）。
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, info, warn};
 
@@ -20,27 +22,60 @@ use crate::l4::{Directory, Groups, L4Error, OfflineStore};
 use crate::metrics::Metrics;
 use crate::util::{from_hex, parse_token_hash, to_hex};
 
+/// 单行请求上限
+pub const MAX_LINE_BYTES: usize = 2 * 1024 * 1024;
+/// 控制面并发连接上限
+pub const MAX_CONTROL_CONNS: usize = 16;
+/// 读完一行请求的空闲超时
+pub const READ_TIMEOUT: Duration = Duration::from_secs(30);
+/// 单连接允许的鉴权失败次数
+pub const MAX_AUTH_FAILURES: u32 = 5;
+
 /// 控制面共享状态。
 pub struct ControlState {
     pub offline: Arc<OfflineStore>,
     pub groups: Arc<Groups>,
     pub directory: Arc<Directory>,
     pub metrics: Arc<Metrics>,
-    pub token: Option<String>,
+    /// 必填：没有口令就不启动控制面
+    pub token: String,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Req {
-    Auth { token: String },
+    Auth {
+        token: String,
+    },
     Ping,
-    OfflinePush { dst: String, payload: String },
-    OfflinePull { dst: String, max: Option<usize> },
-    GroupCreate { name: String, owner: String },
-    GroupJoin { name: String, member: String },
-    GroupSend { name: String, sender: String, payload: String },
-    GroupPull { name: String, member: String },
-    DirLookup { hash: String },
+    OfflinePush {
+        dst: String,
+        payload: String,
+    },
+    OfflinePull {
+        dst: String,
+        max: Option<usize>,
+    },
+    GroupCreate {
+        name: String,
+        owner: String,
+    },
+    GroupJoin {
+        name: String,
+        member: String,
+    },
+    GroupSend {
+        name: String,
+        sender: String,
+        payload: String,
+    },
+    GroupPull {
+        name: String,
+        member: String,
+    },
+    DirLookup {
+        hash: String,
+    },
     Stats,
 }
 
@@ -55,10 +90,18 @@ struct Resp {
 
 impl Resp {
     fn ok(data: serde_json::Value) -> Self {
-        Self { ok: true, error: None, data: Some(data) }
+        Self {
+            ok: true,
+            error: None,
+            data: Some(data),
+        }
     }
     fn err(e: impl std::fmt::Display) -> Self {
-        Self { ok: false, error: Some(e.to_string()), data: None }
+        Self {
+            ok: false,
+            error: Some(e.to_string()),
+            data: None,
+        }
     }
 }
 
@@ -66,10 +109,63 @@ fn e(e: L4Error) -> Resp {
     Resp::err(e)
 }
 
+/// 常数时间比较，避免按字节短路泄露口令前缀。
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut acc: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        acc |= x ^ y;
+    }
+    acc == 0
+}
+
+/// 读一行，超过上限即报错（不无限增长缓冲区）。
+async fn read_line_limited<R: AsyncBufRead + Unpin>(
+    r: &mut R,
+    max: usize,
+    out: &mut Vec<u8>,
+) -> std::io::Result<Option<usize>> {
+    out.clear();
+    loop {
+        let (chunk_len, hit_newline) = {
+            let available = r.fill_buf().await?;
+            if available.is_empty() {
+                if out.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(out.len()));
+            }
+            match available.iter().position(|&b| b == b'\n') {
+                Some(p) => (p + 1, true),
+                None => (available.len(), false),
+            }
+        };
+
+        if out.len() + chunk_len > max {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "control line too long",
+            ));
+        }
+        {
+            let available = r.fill_buf().await?;
+            out.extend_from_slice(&available[..chunk_len]);
+        }
+        r.consume(chunk_len);
+        if hit_newline {
+            return Ok(Some(out.len()));
+        }
+    }
+}
+
 /// 启动控制面。
 pub async fn serve(addr: SocketAddr, state: Arc<ControlState>) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    info!(%addr, "控制面已监听");
+    info!(%addr, "控制面已监听（需要口令）");
+    let live = Arc::new(AtomicUsize::new(0));
+
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
@@ -78,11 +174,21 @@ pub async fn serve(addr: SocketAddr, state: Arc<ControlState>) -> std::io::Resul
                 continue;
             }
         };
+
+        if live.load(Ordering::Relaxed) >= MAX_CONTROL_CONNS {
+            debug!(%peer, "控制面连接数已满，拒绝");
+            drop(stream);
+            continue;
+        }
+        live.fetch_add(1, Ordering::Relaxed);
+
         let st = Arc::clone(&state);
+        let live2 = Arc::clone(&live);
         tokio::spawn(async move {
             if let Err(err) = handle(stream, st).await {
                 debug!(%peer, error = %err, "控制面连接结束");
             }
+            live2.fetch_sub(1, Ordering::Relaxed);
         });
     }
 }
@@ -90,33 +196,71 @@ pub async fn serve(addr: SocketAddr, state: Arc<ControlState>) -> std::io::Resul
 async fn handle(stream: TcpStream, state: Arc<ControlState>) -> std::io::Result<()> {
     stream.set_nodelay(true).ok();
     let (rd, mut wr) = stream.into_split();
-    let mut lines = BufReader::new(rd).lines();
+    let mut reader = BufReader::new(rd);
+    let mut line = Vec::new();
+    let mut authed = false;
+    let mut failures: u32 = 0;
 
-    let mut authed = state.token.is_none();
+    loop {
+        let read = tokio::time::timeout(
+            READ_TIMEOUT,
+            read_line_limited(&mut reader, MAX_LINE_BYTES, &mut line),
+        )
+        .await;
 
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
+        let n = match read {
+            Err(_) => return Ok(()),
+            Ok(Err(err)) => {
+                let r = Resp::err(format!("请求行非法: {err}"));
+                write_resp(&mut wr, &r).await?;
+                return Ok(());
+            }
+            Ok(Ok(None)) => return Ok(()),
+            Ok(Ok(Some(n))) => n,
+        };
+        if n == 0 {
             continue;
         }
-        let resp = match serde_json::from_str::<Req>(&line) {
+
+        let text = match std::str::from_utf8(&line) {
+            Ok(t) => t.trim(),
+            Err(_) => {
+                write_resp(&mut wr, &Resp::err("请求不是合法 UTF-8")).await?;
+                continue;
+            }
+        };
+        if text.is_empty() {
+            continue;
+        }
+
+        let resp = match serde_json::from_str::<Req>(text) {
             Err(err) => Resp::err(format!("请求解析失败: {err}")),
             Ok(Req::Auth { token }) => {
-                if state.token.as_deref() == Some(token.as_str()) {
+                if ct_eq(token.as_bytes(), state.token.as_bytes()) {
                     authed = true;
                     Resp::ok(serde_json::json!({"authed": true}))
                 } else {
+                    failures += 1;
+                    if failures >= MAX_AUTH_FAILURES {
+                        write_resp(&mut wr, &Resp::err("鉴权失败次数过多")).await?;
+                        return Ok(());
+                    }
                     Resp::err("鉴权失败")
                 }
             }
-            Ok(_) if !authed => Resp::err("未鉴权：请先发送 {\"op\":\"auth\",\"token\":\"…\"}"),
+            Ok(_) if !authed => Resp::err("未鉴权：请先发送 auth 请求"),
             Ok(req) => dispatch(req, &state),
         };
-        let mut out = serde_json::to_vec(&resp).unwrap_or_else(|_| b"{\"ok\":false}".to_vec());
-        out.push(b'\n');
-        wr.write_all(&out).await?;
-        wr.flush().await?;
+
+        write_resp(&mut wr, &resp).await?;
     }
-    Ok(())
+}
+
+async fn write_resp<W: tokio::io::AsyncWrite + Unpin>(w: &mut W, r: &Resp) -> std::io::Result<()> {
+    let mut out = serde_json::to_vec(r).unwrap_or_else(|_| b"{\"ok\":false}".to_vec());
+    out.push(b'\n');
+    w.write_all(&out).await?;
+    w.flush().await
 }
 
 fn dispatch(req: Req, state: &ControlState) -> Resp {
@@ -174,7 +318,11 @@ fn dispatch(req: Req, state: &ControlState) -> Resp {
             }
         }
 
-        Req::GroupSend { name, sender, payload } => {
+        Req::GroupSend {
+            name,
+            sender,
+            payload,
+        } => {
             let Some(s) = parse_token_hash(&sender) else {
                 return Resp::err("sender 必须是 64 个十六进制字符");
             };
@@ -210,7 +358,7 @@ fn dispatch(req: Req, state: &ControlState) -> Resp {
             let Some(h) = parse_token_hash(&hash) else {
                 return Resp::err("hash 必须是 64 个十六进制字符");
             };
-            match state.directory.lookup(h, state.directory.allow_arbitrary()) {
+            match state.directory.lookup(h) {
                 Ok((alive, ago)) => Resp::ok(serde_json::json!({"alive": alive, "ago_secs": ago})),
                 Err(err) => e(err),
             }
@@ -220,6 +368,7 @@ fn dispatch(req: Req, state: &ControlState) -> Resp {
             "accepted": Metrics::get(&state.metrics.accepted),
             "paired": Metrics::get(&state.metrics.paired),
             "active_pairs": Metrics::get(&state.metrics.active_pairs),
+            "active_conns": Metrics::get(&state.metrics.active_conns),
             "rejected_silent": Metrics::get(&state.metrics.rejected_silent),
             "lobby_timeout": Metrics::get(&state.metrics.lobby_timeout),
             "bytes_in": Metrics::get(&state.metrics.bytes_in),
@@ -228,5 +377,40 @@ fn dispatch(req: Req, state: &ControlState) -> Resp {
             "offline_stored": Metrics::get(&state.metrics.offline_stored),
             "group_broadcasts": Metrics::get(&state.metrics.group_broadcasts),
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ct_eq_matches_normal_equality() {
+        assert!(ct_eq(b"abc", b"abc"));
+        assert!(!ct_eq(b"abc", b"abd"));
+        assert!(!ct_eq(b"abc", b"abcd"));
+        assert!(!ct_eq(b"", b"a"));
+    }
+
+    #[tokio::test]
+    async fn read_line_limited_rejects_overlong_line() {
+        let data = vec![b'a'; 64];
+        let mut r = BufReader::new(std::io::Cursor::new(data));
+        let mut out = Vec::new();
+        let e = read_line_limited(&mut r, 16, &mut out).await;
+        assert!(e.is_err(), "超长行必须报错而不是无限缓冲");
+    }
+
+    #[tokio::test]
+    async fn read_line_limited_reads_line() {
+        let data = b"hello\nworld\n".to_vec();
+        let mut r = BufReader::new(std::io::Cursor::new(data));
+        let mut out = Vec::new();
+        let n = read_line_limited(&mut r, 64, &mut out)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(out, b"hello\n");
     }
 }

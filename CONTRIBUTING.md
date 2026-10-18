@@ -63,6 +63,6 @@ Code is dual-licensed AGPL-3.0-or-later / commercial; see [`LICENSING.md`](LICEN
 ## Style
 
 - `cargo fmt`, `cargo clippy -- -D warnings`.
-- Comments explain *why*, not *what*. Where a behaviour exists to satisfy a specification
-  line, cite it.
+- Comments state the constraint, not a narrative. Prefer citing the line or clause a
+  behaviour exists to satisfy over explaining the history of the change.
 - Errors returned to a client never reveal why a connection was refused.

@@ -13,8 +13,9 @@ ZT-DSP has three roles. This repository implements exactly one of them.
 | **Server** | Pairs peers, relays opaque bytes | **Yes** |
 | **Client** | Runs the handshake, encrypts, encrypts again | No — see `ZT-DSP-client` |
 
-The server is deliberately *not* a participant in the key exchange. It forwards the
-phase-1/2/3/4 frames and never derives a session key.
+The server is deliberately *not* a participant in the key exchange. It forwards phase-1
+frames after reading the identity declaration, and from then on moves phases 2, 3 and 4
+as opaque bytes. It never derives a session key.
 
 ```
         phase 1 (identity)      phase 2 (pubkey)      phase 3 (tag)
@@ -52,9 +53,10 @@ Each accepted TCP connection moves through a small state machine.
         SILENT_DROP                             CLOSED
 ```
 
-Note that a rejected connection is **not** closed immediately. It is drained for the
-same window a legitimate peer would wait, so an observer cannot tell "bad handshake"
-from "nobody there". This is the silent-drop contract; see `docs/PROTOCOL-CONFORMANCE.md` §F.2.
+Note that a rejected connection is **not** closed immediately. Every rejection path —
+parse failure, bad parameter set, and lobby timeout — drains for the *same* window,
+`handshake_timeout_secs`, so an observer cannot distinguish one rejection cause from another
+by timing. This is the silent-drop contract; see `docs/PROTOCOL-CONFORMANCE.md` §F.2.
 
 ## 3. Pairing
 
@@ -103,7 +105,12 @@ from its position in the handshake. Adding a control frame would therefore:
 
 So the L4 features — offline envelopes, group log, identity directory — live on a
 **separate TCP port** speaking JSON Lines. The data plane stays byte-for-byte
-specification-conformant, and can be deployed with the control plane disabled.
+specification-conformant, and is deployed with the control plane disabled by default.
+
+The consequence is that the existing clients cannot use L4: they only speak the wire
+format. Those features are for operators and for clients built against this extension.
+The identity directory is additionally off in every profile, because it records when a
+token hash appeared, which the specification forbids (line 979).
 
 ```
 data plane   :7443   ZT-DSP wire format      (spec-conformant)
@@ -123,7 +130,15 @@ One Tokio task per connection, plus one housekeeping task.
 State is shared through `Arc<Shared>` with a `Mutex` only around the per-IP counter,
 the waiting pool, and the L4 stores. The relay path takes no locks at all.
 
-## 7. Limits
+## 7. Repository guard
+
+`scripts/check.sh` was rewritten in the same change that introduced the implementation.
+The previous version rejected any `.rs` / `.toml` / `.py` file and required the READMEs
+to keep placeholder wording, so it would have refused this code outright. It now checks
+licence headers, absence of identity material in logs, bilingual mirror presence, absence
+of placeholder wording, and absence of documentation references to removed symbols.
+
+## 8. Limits
 
 | Limit | Value | Source |
 |---|---|---|
@@ -134,6 +149,7 @@ the waiting pool, and the L4 stores. The relay path takes no locks at all.
 | Handshake deadline | 15 s, shared by the whole frame | Appendix H.3 |
 | Lobby timeout | 30 s | Appendix H.3 |
 | Drain chunk | 8192 B | Appendix F.2 |
+| Relay write timeout | 30 s | local hardening: a peer that connects but never reads must not stall the task |
 
 All length checks happen **before** the payload is allocated or read. A declared
 length above the cap terminates parsing immediately.

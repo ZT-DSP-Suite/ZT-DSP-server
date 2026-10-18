@@ -76,7 +76,10 @@ pub struct Ticket {
 
 impl<T> Lobby<T> {
     pub fn new() -> Self {
-        Self { waiters: Mutex::new(HashMap::new()), next_id: AtomicU64::new(1) }
+        Self {
+            waiters: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+        }
     }
 
     /// 登记自己；能配上就直接配对。
@@ -114,7 +117,10 @@ impl<T> Lobby<T> {
             deliver: tx,
         });
 
-        Outcome::Waiting { rx, ticket: Ticket { id, key: me.dst } }
+        Outcome::Waiting {
+            rx,
+            ticket: Ticket { id, key: me.dst },
+        }
     }
 
     /// 退出池子。超时 / 断开时调用。
@@ -164,12 +170,26 @@ mod tests {
     use super::*;
     use crate::frame::TokenHash;
 
+    fn param() -> crate::frame::ParamSet {
+        crate::frame::ParamSet {
+            aead: "AES-256-GCM".into(),
+            hash: "SHA3-256".into(),
+            key_len: 256,
+            module_flags: serde_json::Map::new(),
+            random_len: 256,
+            random_rate: 1024,
+            window: 60,
+        }
+    }
+
     fn frame(src: u8, dst: u8) -> Phase1Frame {
         Phase1Frame {
             raw: vec![0u8; 228],
-            param_json: Vec::new(),
-            identity: Identity { src: TokenHash([src; 32]), dst: TokenHash([dst; 32]) },
-            nonce: Vec::new(),
+            param: param(),
+            identity: Identity {
+                src: TokenHash([src; 32]),
+                dst: TokenHash([dst; 32]),
+            },
         }
     }
 
@@ -180,12 +200,18 @@ mod tests {
         assert_eq!(lobby.waiting_count(), 1);
 
         match lobby.register(frame(0xBB, 0xAA)) {
-            Outcome::Matched { peer_frame, deliver_to_peer } => {
+            Outcome::Matched {
+                peer_frame,
+                deliver_to_peer,
+            } => {
                 assert_eq!(peer_frame.identity.src.0, [0xAA; 32]);
                 // 模拟后到方把自己交过去
                 assert!(
                     deliver_to_peer
-                        .send(Handoff { frame: frame(0xBB, 0xAA), payload: 42 })
+                        .send(Handoff {
+                            frame: frame(0xBB, 0xAA),
+                            payload: 42
+                        })
                         .is_ok(),
                     "先到方应该还在等"
                 );
@@ -199,7 +225,10 @@ mod tests {
     fn same_target_without_reverse_match_does_not_pair() {
         let lobby: Lobby<u32> = Lobby::new();
         let _a = lobby.register(frame(0xAA, 0xBB));
-        assert!(matches!(lobby.register(frame(0xCC, 0xBB)), Outcome::Waiting { .. }));
+        assert!(matches!(
+            lobby.register(frame(0xCC, 0xBB)),
+            Outcome::Waiting { .. }
+        ));
         assert_eq!(lobby.waiting_count(), 2);
     }
 
@@ -208,7 +237,10 @@ mod tests {
         let lobby: Lobby<u32> = Lobby::new();
         let _a = lobby.register(frame(0xAA, 0xBB));
         // X 冒充：src=X, dst=A，A 要找的是 B，双向不成立
-        assert!(matches!(lobby.register(frame(0xCC, 0xAA)), Outcome::Waiting { .. }));
+        assert!(matches!(
+            lobby.register(frame(0xCC, 0xAA)),
+            Outcome::Waiting { .. }
+        ));
     }
 
     #[test]
