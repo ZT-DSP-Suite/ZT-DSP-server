@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 **Note on authority:** this file is a convenience record, not the source of truth. The
-authoritative change history is `git log`. If the two ever disagree, `git log` wins.
+governing change history is `git log`. If the two ever disagree, `git log` wins.
 
 ## [Unreleased]
 
