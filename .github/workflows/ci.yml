@@ -55,11 +55,15 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
-      - name: Install the cross linker
+      - name: Install the cross toolchain
         if: matrix.cross
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu
+          # libc6-dev-arm64-cross is only a *recommends* of
+          # gcc-aarch64-linux-gnu, so --no-install-recommends drops it and the
+          # link then fails looking for crt1.o. Ask for it by name.
+          sudo apt-get install --no-install-recommends -y \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Toolchain
         run: |
