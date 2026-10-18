@@ -62,8 +62,12 @@ jobs:
           # libc6-dev-arm64-cross is only a *recommends* of
           # gcc-aarch64-linux-gnu, so --no-install-recommends drops it and the
           # link then fails looking for crt1.o. Ask for it by name.
+          #
+          # qemu-user-static lets the aarch64 binary actually run on this
+          # x86_64 runner, so the version contract below is checked by
+          # executing the binary rather than by grepping its bytes.
           sudo apt-get install --no-install-recommends -y \
-            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user-static
 
       - name: Toolchain
         run: |
@@ -98,6 +102,14 @@ jobs:
 
       - name: Version contract
         run: |
-          OUT=$(target/${{ matrix.target }}/release/zt-dsp-server --version)
+          BIN=target/${{ matrix.target }}/release/zt-dsp-server
+          # The aarch64 binary cannot run natively on an x86_64 runner, so it
+          # runs under qemu there. Either way the binary is executed, not
+          # grepped.
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            OUT=$(qemu-aarch64-static "$BIN" --version)
+          else
+            OUT=$("$BIN" --version)
+          fi
           echo "$OUT"
           echo "$OUT" | grep -q 'ZT-DSP_SV-1.0.0'
