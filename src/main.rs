@@ -1061,7 +1061,7 @@ mod relay {
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
-        let mut buf = vec![0u8; opts.buffer_bytes.max(1024)];
+        let mut buf = vec![0u8; opts.buffer_bytes];
 
         loop {
             let n = match opts.idle_timeout {
@@ -1446,10 +1446,18 @@ mod config {
                     );
                 }
             }
-            if self.group.enabled && self.group.max_groups == 0 {
-                return Err(
-                    "group.max_groups must be greater than zero when group is enabled".into(),
-                );
+            if self.group.enabled {
+                for (name, v) in [
+                    ("group.max_groups", self.group.max_groups),
+                    ("group.max_members", self.group.max_members),
+                    ("group.max_payload", self.group.max_payload),
+                ] {
+                    if v == 0 {
+                        return Err(format!(
+                            "{name} must be greater than zero when group is enabled"
+                        ));
+                    }
+                }
             }
             if self.directory.enabled && self.directory.ttl_secs == 0 {
                 return Err(
@@ -1688,7 +1696,7 @@ mod l4 {
             let Some(q) = guard.get_mut(&dst) else {
                 return Ok(Vec::new());
             };
-            let take = q.len().min(max.max(1));
+            let take = q.len().min(max);
             let mut out = Vec::with_capacity(take);
             for _ in 0..take {
                 if let Some(item) = q.pop_front() {
@@ -1826,7 +1834,11 @@ mod l4 {
             let cursor = g.next_cursor;
             g.next_cursor += 1;
             g.log.push_back(Broadcast { payload, cursor });
-            let cap = self.cfg.max_members.saturating_mul(64).max(64);
+            // 每名成员最多保留 64 条群日志。
+            // 系数写在这里而不是散在别处：64 = 每成员保留的日志条数上限，
+            // 成员数上限乘以它就是群日志的总条数上限。
+            // max_members 在配置校验里必须大于 0，所以这里不再兜底。
+            let cap = self.cfg.max_members.saturating_mul(64);
             while g.log.len() > cap {
                 g.log.pop_front();
             }
@@ -2267,21 +2279,21 @@ mod control {
             }
             live.fetch_add(1, Ordering::Relaxed);
 
-            let st = Arc::clone(&state);
-            let live2 = Arc::clone(&live);
+            let child_state = Arc::clone(&state);
+            let live_count = Arc::clone(&live);
             tokio::spawn(async move {
-                if let Err(err) = handle(stream, st).await {
+                if let Err(err) = handle(stream, child_state).await {
                     debug!(%peer, error = %err, "控制面连接结束");
                 }
-                live2.fetch_sub(1, Ordering::Relaxed);
+                live_count.fetch_sub(1, Ordering::Relaxed);
             });
         }
     }
 
     async fn handle(stream: TcpStream, state: Arc<ControlState>) -> std::io::Result<()> {
         stream.set_nodelay(true).ok();
-        let (rd, mut wr) = stream.into_split();
-        let mut reader = BufReader::new(rd);
+        let (read_half, mut write_half) = stream.into_split();
+        let mut reader = BufReader::new(read_half);
         let mut line = Vec::new();
         let mut authed = false;
         let mut failures: u32 = 0;
@@ -2297,7 +2309,7 @@ mod control {
                 Err(_) => return Ok(()),
                 Ok(Err(err)) => {
                     let r = Resp::err(format!("请求行非法: {err}"));
-                    write_resp(&mut wr, &r).await?;
+                    write_resp(&mut write_half, &r).await?;
                     return Ok(());
                 }
                 Ok(Ok(None)) => return Ok(()),
@@ -2310,7 +2322,7 @@ mod control {
             let text = match std::str::from_utf8(&line) {
                 Ok(t) => t.trim(),
                 Err(_) => {
-                    write_resp(&mut wr, &Resp::err("请求不是合法 UTF-8")).await?;
+                    write_resp(&mut write_half, &Resp::err("请求不是合法 UTF-8")).await?;
                     continue;
                 }
             };
@@ -2327,7 +2339,7 @@ mod control {
                     } else {
                         failures += 1;
                         if failures >= MAX_AUTH_FAILURES {
-                            write_resp(&mut wr, &Resp::err("鉴权失败次数过多")).await?;
+                            write_resp(&mut write_half, &Resp::err("鉴权失败次数过多")).await?;
                             return Ok(());
                         }
                         Resp::err("鉴权失败")
@@ -2337,7 +2349,7 @@ mod control {
                 Ok(req) => dispatch(req, &state),
             };
 
-            write_resp(&mut wr, &resp).await?;
+            write_resp(&mut write_half, &resp).await?;
         }
     }
 
@@ -2767,10 +2779,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         shared.metrics.active_conns.fetch_add(1, Ordering::Relaxed);
         Metrics::inc(&shared.metrics.accepted);
 
-        let shared2 = Arc::clone(&shared);
+        let shared_state = Arc::clone(&shared);
         tokio::spawn(async move {
-            let _g = ConnGuard(Arc::clone(&shared2.metrics));
-            handle_conn(stream, peer, shared2).await;
+            let _g = ConnGuard(Arc::clone(&shared_state.metrics));
+            handle_conn(stream, peer, shared_state).await;
         });
     }
 }
