@@ -1,63 +1,160 @@
-# ZT-DSP Server Edition (work in progress)
+# ZT-DSP Server
 
-## 这里有什么
+> **Status: implementation landed.** The data plane — frame parsing, lobby pairing,
+> silent drop, byte relay — is implemented in Rust against ZT-DSP 1.0.1 and verified.
+> The L4 extensions (offline delivery, groups, identity directory) run on a **separate
+> control plane** that does not touch the wire format.
 
-The English description of the relay server.
+| | |
+|---|---|
+| Specification | ZT-DSP Master Guide 1.0.1 |
+| Language | Rust (edition 2021, MSRV 1.80) |
+| Artifact | single static binary, `aarch64` / `x86_64` |
+| Runtime deps | none (no database, no broker, no TLS terminator) |
+| Server version | `ZT-DSP_SV-1.0.0` |
+| Licence | AGPL-3.0-or-later **or** commercial |
 
-## 按什么找
+## What this is
 
-Protocol behaviour is specified in ZT-DSP-docs.
+A relay server for ZT-DSP peers. It adds exactly one role: the **front desk**.
 
-> This repository is a **placeholder** for the ZT-DSP server edition. No implementation has started yet.
+```
+Peer A ──┐                                  ┌── Peer B
+         ├──── ZT-DSP server (this repo) ────┤
+Peer C ──┘      pairing + byte relay          └── Peer D
+               server never decrypts
+```
 
-## Why a server edition is needed
+The server registers, pairs, forwards. It never opens the envelope: phase-2 public keys,
+phase-3 confirmation tags and phase-4 ciphertext are all opaque to it. The only data it
+reads is the two token hashes in the phase-1 frame (for pairing) and the session
+identifier in the phase-4 header (for room routing).
 
-The current client edition (repository `ZT-DSP-client`) is a direct-connection model: both peers must be reachable — **each side needs a public IP address or another direct path** (port forwarding, IPv6, a tunnel, etc.). That works for small, mutually trusting groups, but not for:
+## What this is not
 
-- a peer behind NAT that cannot forward ports;
-- asynchronous delivery (messages when the other side is offline);
-- multi-party groups, identity directories, or cross-organization federation;
-- establishing a connection without exposing either peer's IP address.
+- **Not a CA.** Token issuance and revocation (TCA / CRL) is a separate, independent role.
+- **Not a decrypting middlebox.** Terminating the handshake would create a plaintext vantage
+  point; that is explicitly out of scope.
+- **Not persistent.** Offline envelopes and group logs live in memory and vanish on restart.
 
-The server edition aims to add these capabilities **without weakening the existing end-to-end security properties**, while remaining compatible and interoperable with the client protocol.
+## Conformance
 
-## Status
+| Area | Spec | Status |
+|---|---|---|
+| Phase-1 parsing, length limits | Appendix F.1 / F.6 | implemented |
+| Lobby pairing, 30 s timeout | §4.2 / Appendix H.3 | implemented |
+| Silent-drop contract (five elements) | Appendix F.2 | implemented |
+| Byte relay, transcript untouched | §4.2 line 254 | implemented |
+| Profile defaults | Appendix B.2 | implemented |
+| Offline / groups / directory | **not specified** | extension |
 
-- Phase: **pre-specification**
-- This repository currently contains only this placeholder notice and the license. Scope, protocol extensions, threat model, and security boundaries will be filled in as the design is settled.
-- A server **must not** become a plaintext vantage point: any relay design must preserve end-to-end encryption, and the server should see only the minimum metadata needed for routing.
+Section-by-section mapping: [`../docs/PROTOCOL-CONFORMANCE.md`](../docs/PROTOCOL-CONFORMANCE.md).
+Extension contract: [`../docs/CONTROL-API.md`](../docs/CONTROL-API.md).
 
-## Versions
+## Why a server edition exists
 
-| Item | Value |
-|------|-------|
-| applicable total-guide version | 1.0.0 (may be several; see "Applicability" below) |
-| client version | ZT-DSP_PY-1.0.0 (repository `ZT-DSP-client`), ZT-DSP_RS-1.0.0 (same repository) |
-| server version | ZT-DSP_SV-1.0.0 (this repository, placeholder, not implemented yet) |
-| followed document | "ZT-DSP Protocol Master Guide", path ZT-DSP-docs/en/spec/ZT-DSP-1.0.1-Master_Guide.md |
+The client edition is a direct-connection model: both peers must be independently
+reachable. That is fine among a small circle of mutually trusting people, but it does not
+solve:
 
-### Applicability (many-to-many)
+- a peer behind NAT that cannot port-forward;
+- asynchronous delivery while the recipient is offline;
+- multi-party groups, an identity directory, or cross-organisation federation;
+- connecting without exposing either peer's IP address.
 
-The relation between a total-guide version and the client/server versions is **not** one-to-one; it is many-to-many:
+This repository adds those capabilities **without weakening the end-to-end properties**,
+and stays interoperable with the client protocol.
 
-| Relation | Rule |
-|----------|------|
-| one total-guide version -> several implementation versions | several implementations of the same kind whose protocol behaviour has not changed **share one declaration**; no rewrite is needed per version |
-| several total-guide versions -> one implementation version | one implementation may apply to several guides at once; listed item by item in `APPLIES_TO_DOC_VERSIONS` |
-| same number, different implementation | identical version numbers do **not** mean the same implementation and do not constitute a compatibility claim |
-| how compatibility is decided | applicability is a **declaration**, not a test; real compatibility is always shown by the phase-three confirmation-label check |
+## Quick start
 
-Handshake frames carry **no version string**: neither the phase-one parameter JSON nor the phase-four AAD
-carries a version or protocol identifier field.
+```bash
+cargo build --release
+./target/release/zt-dsp-server --listen 0.0.0.0:7443
+```
 
-> This repository has no implementation yet. `ZT-DSP_SV-1.0.0` above is a **placeholder identifier** reserved
-> to carry the applicability relation; it is not a released implementation.
+With the control plane (recommended in production — always set a token):
+
+```bash
+./target/release/zt-dsp-server \
+  --listen 0.0.0.0:7443 \
+  --control 127.0.0.1:7444 \
+  --control-token "$(head -c 32 /dev/urandom | base64)" \
+  --profile advanced
+```
+
+## Profiles (Appendix B.2)
+
+| Profile | Concurrent | Per-IP | Offline | Groups | Directory | Idle timeout |
+|---|---|---|---|---|---|---|
+| `beginner` | 2000 | 32 | 1 day | 32 members | on | none |
+| `advanced` | 20000 | 128 | 7 days | 256 members | on | none |
+| `high-anonymity` | 500 | 4 | **off** | **off** | **off** | 300 s |
+
+The high-anonymity tier disables every store. That is a deliberate privacy default,
+not an unfinished feature.
+
+## Server processing flow (§4.2)
+
+| Step | Spec | Implementation |
+|---|---|---|
+| 1. Parameter check | reject on shape mismatch | length/structure validation (`src/frame.rs`) |
+| 2. Token verification | TCA signature + CRL | **not implemented** — TCA/CRL role |
+| 3. Lobby matching | find a resident holding H(Token_A) | `src/lobby.rs` |
+| 4. Lobby management | 30 s auto-clear, no broadcast | `LOBBY_TIMEOUT`, `withdraw`, `sweep` |
+
+Pairing predicate — **mutual match**:
+
+```
+newcomer.src == waiter.dst   AND   newcomer.dst == waiter.src
+```
+
+A one-sided name collision does not pair, so an attacker cannot insert themselves into
+someone else's session by guessing a target hash.
+
+## Security boundaries
+
+| Property | Mechanism |
+|---|---|
+| Server cannot read content | It holds no session key; it only forwards ciphertext |
+| Pairing metadata is never logged | Spec line 978 is mandatory; logs carry aggregate counters only |
+| Impersonation fails | Mutual pairing predicate |
+| Probes are indistinguishable | Every anomaly goes to silent drop: no bytes, no close, no error |
+| Slowloris | The whole phase-1 frame shares one 15 s deadline |
+| Memory exhaustion | Every length field is checked before allocation |
+| Traffic analysis | Directory timestamps floored to minutes; arbitrary lookup off by default |
+
+Full operator capability statement: [`../docs/THREAT-MODEL.md`](../docs/THREAT-MODEL.md).
 
 ## Layout
 
-- `cn/` — Chinese documentation
-- `en/` — English documentation
+```
+src/frame.rs     wire format (Appendix F); only phase-1 identity and phase-4 header
+src/lobby.rs     waiting-pool pairing; mutual match, 30 s timeout, connection handoff
+src/silent.rs    strict silent drop
+src/relay.rs     bidirectional byte relay
+src/l4.rs        offline store / groups / directory
+src/control.rs   L4 control plane (JSON Lines over TCP)
+src/config.rs    three profile tiers (Appendix B.2)
+src/main.rs      listener, per-IP limits, connection lifecycle
+tests/           end-to-end and L3/L4 scenarios
+docs/            architecture, conformance, control API, threat model, deployment
+```
+
+## Version applicability (many-to-many)
+
+Guide versions and implementation versions are **not** one-to-one:
+
+| Relation | Rule |
+|---|---|
+| One guide → many implementations | Shared declaration while protocol behaviour is unchanged |
+| Many guides → one implementation | List each in `APPLIES_TO_DOC_VERSIONS` |
+| Same number, different implementation | Equal numbers do not imply equal behaviour or compatibility |
+| Compatibility judgement | Always decided by the phase-3 confirmation tag check |
+
+Handshake frames carry **no version string**: neither the phase-1 parameter JSON nor the
+phase-4 AAD contains a version or protocol identifier field.
 
 ## Licence
 
-Dual-licensed under **AGPL-3.0-or-later** or a **commercial license**. See [LICENSING.md](../LICENSING.md) and [LICENSE](../LICENSE).
+Dual-licensed: **AGPL-3.0-or-later** or a paid **commercial** licence.
+See [LICENSING.md](../LICENSING.md) and [LICENSE](../LICENSE).

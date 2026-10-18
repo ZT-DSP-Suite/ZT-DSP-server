@@ -1,0 +1,3 @@
+# 交叉编译：在 aarch64 主机上产出 x86_64 二进制
+[target.x86_64-unknown-linux-gnu]
+linker = "x86_64-linux-gnu-gcc"
