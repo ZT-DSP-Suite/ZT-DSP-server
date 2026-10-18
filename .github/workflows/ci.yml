@@ -1,21 +1,24 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
-# Copyright (c) 2026 ZT-DSP Suite contributors
+# Continuous integration: the gate that every pull request must pass.
 #
-# 每个架构都要**真的编出对应架构的二进制**，并用 readelf 断言。
+# Every action is pinned to a commit SHA (not a movable tag): this repository ships a
+# security protocol, so an upstream tag being retargeted must not silently change what
+# runs here. The comment after each pin records the human-readable version.
 #
-# 这里用标准 ubuntu-24.04 runner + 交叉链接器，而不是 arm64 原生 runner：
-# `ubuntu-24.04-arm` 在本组织不可用，会让整个 workflow 以 startup_failure、0 个 job 结束。
-# 交叉编译同样能编出真正的 aarch64 ELF，readelf 断言保证它不是 x86_64 冒充的。
+# The runner images already ship a stable Rust toolchain, so no third-party Rust
+# action is needed. The architecture matrix below really compiles each target and
+# then asserts the produced binary's machine type with readelf, so that building for
+# both targets is a checked fact rather than a claim.
 #
-# 刻意不用 pull_request_target：那会让 fork 的 PR 拿到本仓 secrets。
-# 本工作流不引用任何 secrets。
-
+# Deliberately not pull_request_target: that would hand a fork's pull request this
+# repository's secrets. This workflow references no secrets.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,7 +33,7 @@ env:
 jobs:
   build-test:
     name: ${{ matrix.target }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -38,40 +41,45 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             machine: X86-64
             cross: false
+            linker: cc
           - target: aarch64-unknown-linux-gnu
             machine: AArch64
             cross: true
-
+            linker: aarch64-linux-gnu-gcc
+    env:
+      # An environment variable overrides the linker in .cargo/config.toml, which
+      # is written for a developer building on the other architecture.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
     steps:
-      - name: checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
-      - name: rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-          target: ${{ matrix.target }}
-
-      - name: install the cross linker
+      - name: Install the cross linker
         if: matrix.cross
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu
 
-      - name: format
+      - name: Toolchain
+        run: |
+          rustc --version
+          cargo --version
+          rustup target add ${{ matrix.target }}
+          rustup component add rustfmt clippy
+
+      - name: Format
         run: cargo fmt --all --check
 
-      - name: clippy
+      - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      - name: test
+      - name: Test
         run: cargo test --locked
 
-      - name: release build
+      - name: Release build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: assert the binary really is ${{ matrix.machine }}
+      - name: Assert the binary really is ${{ matrix.machine }}
         run: |
           BIN=target/${{ matrix.target }}/release/zt-dsp-server
           test -x "$BIN" || { echo "missing $BIN"; exit 1; }
@@ -83,7 +91,7 @@ jobs:
             exit 1
           }
 
-      - name: version contract
+      - name: Version contract
         run: |
           OUT=$(target/${{ matrix.target }}/release/zt-dsp-server --version)
           echo "$OUT"
