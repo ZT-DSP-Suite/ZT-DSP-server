@@ -34,7 +34,7 @@ The server edition aims to add these capabilities **without weakening the existi
 | applicable total-guide version | 1.0.0 (may be several; see "Applicability" below) |
 | client version | ZT-DSP_PY-1.0.0 (repository `ZT-DSP-client`), ZT-DSP_RS-1.0.0 (same repository) |
 | server version | ZT-DSP_SV-1.0.0 (this repository, placeholder, not implemented yet) |
-| followed document | "ZT-DSP Protocol Master Guide", path ZT-DSP-docs/en/spec/ZT-DSP-1.0.1-Master_Guide.md |
+| followed document | "ZT-DSP Protocol Master Guide", path ZT-DSP-docs/en/spec/ZT-DSP-1.0.2-Master_Guide.md |
 
 ### Applicability (many-to-many)
 
