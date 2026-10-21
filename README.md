@@ -96,11 +96,18 @@ operational guidance.
 ## Repository map
 
 ```
-src/main.rs      single-file implementation; inline modules:
-                 version (contract) fence (Appendix F) lobby (pairing)
-                 silent (silent drop) relay (byte relay) config (B.2 tiers)
-                 l4 (offline / groups / directory) control (JSON Lines)
-                 metrics util
+src/
+                 main.rs       process wiring: accept loop, connection guards, admission
+                 version.rs    version contract (single source of truth)
+                 frame.rs      Appendix F parsing
+                 lobby.rs      pairing
+                 silent.rs     silent drop
+                 relay.rs      byte relay
+                 config.rs     Appendix B.2 tiers
+                 l4.rs         offline messages, groups, identity directory
+                 control.rs    JSON Lines control plane
+                 metrics.rs    counters
+                 util.rs       hex and constant-time helpers
 tests/           integration.rs (runs under cargo test) plus two manual scripts
 docs/            architecture, conformance, control API, threat model, deployment
 ```

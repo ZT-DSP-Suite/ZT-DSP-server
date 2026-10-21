@@ -103,9 +103,9 @@ and the process exits without one.
 
 | Step | Spec | Implementation |
 |---|---|---|
-| 1. Parameter check | reject on shape mismatch | length/structure validation (`src/main.rs, mod frame`) |
+| 1. Parameter check | reject on shape mismatch | length/structure validation (`src/frame.rs`) |
 | 2. Token verification | TCA signature + CRL | **not implemented** — TCA/CRL role |
-| 3. Lobby matching | find a resident holding H(Token_A) | `src/main.rs, mod lobby` |
+| 3. Lobby matching | find a resident holding H(Token_A) | `src/lobby.rs` |
 | 4. Lobby management | 30 s auto-clear, no broadcast | `lobby_timeout_secs`, `Lobby::withdraw`, `Lobby::sweep` |
 
 Pairing predicate — **mutual match**:
@@ -134,11 +134,18 @@ Full operator capability statement: [`../docs/THREAT-MODEL.md`](../docs/THREAT-M
 ## Layout
 
 ```
-src/main.rs      single-file implementation; inline modules:
-                 version (contract) fence (Appendix F) lobby (pairing)
-                 silent (silent drop) relay (byte relay) config (B.2 tiers)
-                 l4 (offline / groups / directory) control (JSON Lines)
-                 metrics util
+src/
+                 main.rs       process wiring: accept loop, connection guards, admission
+                 version.rs    version contract (single source of truth)
+                 frame.rs      Appendix F parsing
+                 lobby.rs      pairing
+                 silent.rs     silent drop
+                 relay.rs      byte relay
+                 config.rs     Appendix B.2 tiers
+                 l4.rs         offline messages, groups, identity directory
+                 control.rs    JSON Lines control plane
+                 metrics.rs    counters
+                 util.rs       hex and constant-time helpers
 tests/           integration.rs (runs under cargo test) plus two manual scripts
 docs/            architecture, conformance, control API, threat model, deployment
 ```

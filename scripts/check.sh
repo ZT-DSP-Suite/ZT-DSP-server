@@ -127,7 +127,7 @@ fi
 echo '== 6. version contract =='
 vc=0
 for sym in FOLLOWS_DOC FOLLOWS_DOC_PATH APPLIES_TO_DOC_VERSIONS IMPLEMENTATION_ID; do
-  if ! grep -q "pub const $sym" src/main.rs; then
+  if ! grep -q "pub const $sym" src/version.rs; then
     bad "version contract missing: $sym"
     vc=$((vc + 1))
   fi

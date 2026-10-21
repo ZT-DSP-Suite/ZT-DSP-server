@@ -29,6 +29,16 @@ governing change history is `git log`. If the two ever disagree, `git log` wins.
 
 ### Changed
 
+- **The implementation is split into modules.** `src/main.rs` held every module
+inline as a convenience; each protocol surface now has its own file: `frame.rs`
+(Appendix F), `lobby.rs` (pairing), `silent.rs` (silent drop), `relay.rs` (byte
+relay), `config.rs` (B.2 tiers), `l4.rs` (offline, groups, directory),
+`control.rs` (JSON Lines), `version.rs`, `metrics.rs`, `util.rs`, with `main.rs`
+holding only the process wiring. Module boundaries and visibility are
+unchanged, which the compiler and the test count confirm: the same 59 unit and
+3 integration tests pass with no edit to a single test. `check.sh` now reads
+the version contract from `src/version.rs`.
+
 - **The dead pairing field is gone.** Outcome::Matched carried the peer's
   Phase 1 frame, but production destructured it as `peer_frame: _` and threw
   it away; only a test read it. The field and the entry slot that fed it are

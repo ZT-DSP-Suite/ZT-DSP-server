@@ -12,7 +12,7 @@
 但派生标签本身是服务端必须与规范保持一致的间接契约：
 客户端与服务端对标签串的理解一旦分叉，双方就永远通不了。
 
-`src/main.rs` 里的 `labels_match_the_spec_verbatim` 就是守这条的。
+`src/version.rs` 里的 `labels_match_the_spec_verbatim` 就是守这条的。
 它把 7 个标签的期望值逐字写死再比对，**不是**套「都该带 `-v3` 后缀」
 这种规则：规范里 `INFO_EK_ROTATE` 对应的串是 `ZT-DSP-EK-ROTATE`，
 本就不带后缀，套规则会把它误判成漏了。

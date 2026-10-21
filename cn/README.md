@@ -94,9 +94,9 @@ cargo build --release
 
 | 步骤 | 规范要求 | 本实现 |
 |---|---|---|
-| 1. 参数核对 | 形状不符即拒 | 长度与结构校验（`src/main.rs, mod frame`） |
+| 1. 参数核对 | 形状不符即拒 | 长度与结构校验（`src/frame.rs`） |
 | 2. 令牌验证 | TCA 签名 + CRL | **不实现** —— 属 TCA/CRL 角色 |
-| 3. 等候池匹配 | 查找持有 H(Token_A) 的住客 | `src/main.rs, mod lobby` |
+| 3. 等候池匹配 | 查找持有 H(Token_A) 的住客 | `src/lobby.rs` |
 | 4. 等候池管理 | 30 秒自动清除、不广播 | `lobby_timeout_secs` + `Lobby::withdraw` / `Lobby::sweep` |
 
 配对判据是**双向匹配**：
@@ -124,10 +124,18 @@ cargo build --release
 ## 目录
 
 ```
-src/main.rs      单文件实现；内联模块：
-                 version（版本契约）frame（附录 F）lobby（配对）
-                 silent（静默丢弃）relay（字节中继）config（B.2 三档）
-                 l4（离线 / 群组 / 目录）control（JSON Lines）metrics util
+src/
+                 main.rs       进程装配：accept 循环、连接守卫、准入
+                 version.rs    版本契约（单一事实来源）
+                 frame.rs      附录 F 解析
+                 lobby.rs      配对
+                 silent.rs     静默丢弃
+                 relay.rs      字节中继
+                 config.rs     附录 B.2 三档
+                 l4.rs         离线消息、群组、身份目录
+                 control.rs    JSON Lines 控制面
+                 metrics.rs    计数器
+                 util.rs       hex 与常数时间比较
 tests/           integration.rs（随 cargo test 运行）+ 两个手动验收脚本
 docs/            架构、一致性、控制面、威胁模型、部署
 ```
