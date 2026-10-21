@@ -72,28 +72,40 @@ mod version {
 
         /// 复用 client 仓的共享一致性向量。
         ///
-        /// 服务端不解密、不派生密钥，9 个向量里绝大多数对它没有直接约束。
-        /// 但派生标签的命名规则是服务端必须与规范保持一致的间接契约：
-        /// 只要客户端与服务端对 -v3 后缀的理解分叉，双方就永远通不了。
+        /// 派生标签必须与规范逐字一致。
+        ///
+        /// 规范里 ZT-DSP-EK-v3 与 ZT-DSP-EK-ROTATE 是两个不同的串，后者做每包
+        /// 旋转，本来就不带 -v3。所以这里不套后缀规则 —— 那条规则会把 EK_ROTATE
+        /// 误判成漏了后缀 —— 而是把每个标签的期望值写死，逐字比对。
         #[test]
-        fn shared_vectors_use_the_v3_suffix() {
+        fn labels_match_the_spec_verbatim() {
+            /// 逐字取自规范 823、894、901 行。
+            const EXPECTED: &[(&str, &str)] = &[
+                ("INFO_MK", "ZT-DSP-MK-v3"),
+                ("INFO_ANCHOR", "ZT-DSP-ANCHOR-v3"),
+                ("INFO_EK", "ZT-DSP-EK-v3"),
+                ("INFO_SID", "ZT-DSP-SID-v3"),
+                ("INFO_EK_ROTATE", "ZT-DSP-EK-ROTATE"),
+                ("INFO_CONFIRM_INIT", "ZT-DSP-CONFIRM-INIT-v3"),
+                ("INFO_CONFIRM_RESP", "ZT-DSP-CONFIRM-RESP-v3"),
+            ];
+
             let raw = include_str!("../test-vectors/vectors.json");
             let v: serde_json::Value = serde_json::from_str(raw).expect("vectors.json 必须可解析");
             assert_eq!(v["schema"], "zt-dsp-shared-vectors/1");
 
-            // INFO_EK_ROTATE 在上游 vectors.json 里就没有 -v3 后缀。
-            // 这是本仓观察到的上游数据不一致，不是本实现的选择；
-            // 已单列并在 PR 里向文档仓 owner 提问，对方确认前不擅自改上游数据。
-            const KNOWN_UPSTREAM_EXCEPTIONS: &[&str] = &["INFO_EK_ROTATE"];
-
             let labels = v["labels"].as_object().expect("labels 必须是对象");
-            assert!(!labels.is_empty(), "labels 不得为空");
-            for (name, value) in labels {
-                let label = value.as_str().expect("label 必须是字符串");
-                if KNOWN_UPSTREAM_EXCEPTIONS.contains(&name.as_str()) {
-                    continue;
-                }
-                assert!(label.ends_with("-v3"), "{name} = {label} 缺少 -v3 后缀");
+            assert_eq!(
+                labels.len(),
+                EXPECTED.len(),
+                "标签数与规范登记数不符：多一个或少一个都会让双方派生分叉"
+            );
+            for (name, want) in EXPECTED {
+                let got = labels
+                    .get(*name)
+                    .and_then(|x| x.as_str())
+                    .unwrap_or_else(|| panic!("vectors.json 缺少标签 {name}"));
+                assert_eq!(got, *want, "{name} 与规范不一致");
             }
         }
 

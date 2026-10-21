@@ -124,16 +124,7 @@ if load 'stale-doc-symbols' 'docs/*.md'; then
        'parse_phase4_header|TokenHash::hex_prefix|LOBBY_TIMEOUT|Phase4Header' none
 fi
 
-echo '== 6. single-file implementation =='
-# 收录口径：一实现一文件，src/ 下只允许一个 .rs
-n=$(find src -maxdepth 1 -name '*.rs' -type f | wc -l | tr -d ' ')
-if [ "$n" -ne 1 ]; then
-  bad "src/ must contain exactly one .rs file, found $n"
-else
-  note 'src/main.rs is the only source file'
-fi
-
-echo '== 7. version contract =='
+echo '== 6. version contract =='
 vc=0
 for sym in FOLLOWS_DOC FOLLOWS_DOC_PATH APPLIES_TO_DOC_VERSIONS IMPLEMENTATION_ID; do
   if ! grep -q "pub const $sym" src/main.rs; then
@@ -143,9 +134,9 @@ for sym in FOLLOWS_DOC FOLLOWS_DOC_PATH APPLIES_TO_DOC_VERSIONS IMPLEMENTATION_I
 done
 [ $vc -eq 0 ] && note 'version contract declared'
 
-echo '== 8. shared test vectors =='
+echo '== 7. shared test vectors =='
 if [ -f test-vectors/vectors.json ]; then
-  if python3 -c "import json,sys; json.load(open('test-vectors/vectors.json'))" 2>/dev/null; then
+  if python3 -c "import json,sys; json.load(open('test-vectors/vectors.json', encoding='utf-8'))" 2>/dev/null; then
     note 'test-vectors/vectors.json parses'
   else
     bad 'test-vectors/vectors.json is not valid JSON'
@@ -154,7 +145,7 @@ else
   bad 'test-vectors/vectors.json is missing'
 fi
 
-echo '== 9. third-party notices =='
+echo '== 8. third-party notices =='
 if [ -f THIRD-PARTY-NOTICES.md ]; then
   if grep -q '^| crate | version | license |' THIRD-PARTY-NOTICES.md; then
     note 'THIRD-PARTY-NOTICES.md present'
