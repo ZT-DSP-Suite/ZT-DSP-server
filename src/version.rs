@@ -6,13 +6,13 @@ pub const FOLLOWS_DOC: &str = "ZT-DSP Protocol Master Guide";
 
 /// 代码侧双向声明：所遵循文档的路径。
 // 注意：该路径指向**同级仓库** ZT-DSP-docs，在本仓库内不可解析。
-pub const FOLLOWS_DOC_PATH: &str = "ZT-DSP-docs/en/spec/ZT-DSP-1.0.1-Master_Guide.md";
+pub const FOLLOWS_DOC_PATH: &str = "ZT-DSP-docs/en/spec/ZT-DSP-1.0.2-Master_Guide.md";
 
 /// 本实现适用的总指导版本（多对多，可多项）。
 pub const APPLIES_TO_DOC_VERSIONS: &[&str] = &["1.0.0", "1.0.1", "1.0.2"];
 
 /// 总指导版本号（仅用于文档修订计数，不参与网络通信）。
-pub const DOCS_VERSION: &str = "1.0.1";
+pub const DOCS_VERSION: &str = "1.0.2";
 
 /// 本实现的角色。
 pub const ROLE: &str = "server";
@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn version_contract() {
         assert_eq!(IMPLEMENTATION_ID, "ZT-DSP_SV-1.0.0");
-        assert_eq!(DOCS_VERSION, "1.0.1");
+        assert_eq!(DOCS_VERSION, "1.0.2");
         assert_eq!(CODE_VERSION, "1.0.0");
         assert_eq!(ROLE, "server");
         assert_eq!(ROLE_PREFIX, "SV");

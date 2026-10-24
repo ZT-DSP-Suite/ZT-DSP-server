@@ -146,3 +146,8 @@ jobs:
           fi
           echo "$OUT"
           echo "$OUT" | grep -q 'ZT-DSP_SV-1.0.0'
+          # The revision suffix is part of the version contract: --version
+          # prints the same composed string the startup banner prints. This
+          # runs the real binary, which the fallback branch of check.sh
+          # item 9 cannot do.
+          echo "$OUT" | grep -q '(docs '

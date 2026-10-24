@@ -172,8 +172,16 @@ if [ -n "$banner_bin" ]; then
     *) bad "built binary omits the (docs <revision>) suffix: $v_out" ;;
   esac
 else
-  if grep -q 'format_version' src/main.rs && grep -q '(docs ' src/version.rs; then
-    note 'banner form carries the document revision (nothing built yet)'
+  # Three assertions, each guarding one way this can regress:
+  #   command().version(  -- clap is wired to the composed string, not the bare id
+  #   format_version      -- the composed string still comes from version.rs
+  #   '(docs '            -- the composed string still carries the revision
+  # The base code passed a two-grep fallback with the clap wiring reverted,
+  # so the wiring itself is asserted here.
+  if grep -q 'command().version(' src/main.rs \
+     && grep -q 'format_version' src/main.rs \
+     && grep -q '(docs ' src/version.rs; then
+    note 'version wiring carries the document revision (nothing built yet)'
   else
     bad 'version banner has no document revision'
   fi
