@@ -40,7 +40,7 @@ governing change history is `git log`. If the two ever disagree, `git log` wins.
   cited line sits in §1.3 in both 1.0.1 and 1.0.2.
 - Development builds now carry the `-YYYYMMDD` segment in the implementation
   identifier. `CODE_VERSION` stays `1.0.0`, `BUILD_ID` is
-  `ZT-DSP_SV-1.0.0-20261024`, package metadata stays numeric-only, and the
+  `ZT-DSP_SV-1.0.0-20261025`, package metadata stays numeric-only, and the
   compatibility lists keep the release form.
 - **The implementation is split into modules.** `src/main.rs` held every module
 inline as a convenience; each protocol surface now has its own file: `frame.rs`
