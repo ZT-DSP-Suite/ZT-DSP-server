@@ -63,17 +63,32 @@ jobs:
           # gcc-aarch64-linux-gnu, so --no-install-recommends drops it and the
           # link then fails looking for crt1.o. Ask for it by name.
           #
-          # qemu-user-static lets the aarch64 binary actually run on this
-          # x86_64 runner, so the version contract below is checked by
-          # executing the binary rather than by grepping its bytes.
           # libc6-arm64-cross is the aarch64 runtime loader the dynamic
           # binary needs under qemu; it is a recommends as well, so it has
           # to be asked for by name too.
           sudo apt-get install --no-install-recommends -y \
             gcc-aarch64-linux-gnu \
             libc6-dev-arm64-cross \
-            libc6-arm64-cross \
-            qemu-user-static
+            libc6-arm64-cross
+          # qemu lets the aarch64 binary actually run on this x86_64 runner,
+          # so the version contract below is checked by executing the binary
+          # rather than by grepping its bytes.
+          #
+          # The package changed name: qemu-user-static is a virtual package
+          # with no installation candidate on the 26.04 runner and was split
+          # into qemu-user-binfmt plus qemu-user. Try newest first and fall
+          # back, so this works on both the old and the new image.
+          for pkg in qemu-user-binfmt qemu-user qemu-user-static; do
+            if sudo apt-get install --no-install-recommends -y "$pkg"; then
+              echo "installed $pkg"
+              break
+            fi
+          done
+          if ! command -v qemu-aarch64-static >/dev/null && \
+             ! command -v qemu-aarch64 >/dev/null; then
+            echo 'no aarch64 qemu binary after install'
+            exit 1
+          fi
 
       - name: Toolchain
         run: |
@@ -118,7 +133,10 @@ jobs:
           # qemu would otherwise look for them in the host's /lib and fail
           # with the loader missing.
           if [ "${{ matrix.cross }}" = "true" ]; then
-            OUT=$(qemu-aarch64-static -L /usr/aarch64-linux-gnu "$BIN" --version)
+            # The binary name changed too: 26.04 ships qemu-aarch64, older
+            # images ship qemu-aarch64-static.
+            QEMU=$(command -v qemu-aarch64-static || command -v qemu-aarch64)
+            OUT=$("$QEMU" -L /usr/aarch64-linux-gnu "$BIN" --version)
           else
             OUT=$("$BIN" --version)
           fi
