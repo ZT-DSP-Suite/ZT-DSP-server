@@ -110,6 +110,18 @@ the version contract from `src/version.rs`.
   implementation exists. It now checks licence headers and mirror consistency instead.
 - `SECURITY.md` updated: there is now a deployed surface to report against.
 
+### Fixed
+
+- **The control plane's connection-slot counter and its line reader had two
+  latent defects.** `read_line_limited` measured a chunk with one `fill_buf`
+  and copied it with a second one, so a buffer that changed between the two
+  calls copies bytes it never measured — its own comment claimed a single
+  call. The per-connection slot counter was decremented at the end of each
+  spawned task, so a panic skipped the decrement and one of the 16 slots
+  leaked permanently. The copy now happens inside the measuring borrow, and
+  the slot returns through a `Drop` guard that runs on unwind. Constructive
+  tests cover the reader paths and the panic path.
+
 ### Removed
 
 - The "placeholder repository" notice from all three READMEs.
