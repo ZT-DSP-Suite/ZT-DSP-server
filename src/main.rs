@@ -48,7 +48,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{timeout, Instant};
@@ -88,7 +88,7 @@ impl From<ProfileArg> for Profile {
 #[command(
     name = "zt-dsp-server",
     version = version::IMPLEMENTATION_ID,
-    about = "ZT-DSP 1.0.1 server"
+    about = "ZT-DSP relay server"
 )]
 struct Args {
     #[arg(long)]
@@ -151,7 +151,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
 
-    let args = Args::parse();
+    // clap default --version prints only the implementation id, while the
+    // startup banner prints the composed form, which also carries the
+    // document revision. Hand clap the same composed string so the two
+    // cannot disagree, and keep format_version() the single source of it.
+    let banner_version: &str = Box::leak(version::format_version().into_boxed_str());
+    let cmd = Args::command().version(banner_version);
+    let args = Args::from_arg_matches(&cmd.get_matches()).unwrap_or_else(|e| e.exit());
 
     let mut cfg = match &args.config {
         Some(p) => Config::load(p)?,

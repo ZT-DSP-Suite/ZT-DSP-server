@@ -14,8 +14,8 @@ Reference: **ZT-DSP 1.0.1**, `cn/spec/ZT-DSP-1.0.1-总指导.md`
 |---|---|
 | Server only forwards envelopes; cannot decrypt (§4.2 line 254) | After pairing, `relay_pair` moves bytes and never inspects payload |
 | Server reads only phase-1 routing material | `frame::read_phase1` extracts the two 32-byte token hashes |
-| Must not log pairing information (line 979) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. |
-| Worst case is availability, not confidentiality (line 972) | Structural: no key material reaches the server |
+| Must not log pairing information (line 979) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. **Conclusion:** nothing that can reconstruct a pairing is logged, since the hashes and session ids that would be needed never reach a log line. Whether a bare socket address counts as pairing information is a question the text leaves open; §10.1 records it as a known deviation, together with the one-line-per-site fix. |
+| Worst case is availability, not confidentiality (line 972) | Structural: no key material reaches the server. **Conclusion:** met for the data plane, because nothing the server holds would disclose a payload. It does **not** follow for the L4 inbox: `offline_pull` does not prove ownership of the destination, so the worst case there includes metadata and queue integrity. §10.2 states exactly what that does and does not expose. |
 
 ## 2. Appendix F.0 — framing
 
