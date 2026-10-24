@@ -35,6 +35,12 @@ is not enough.
 Opening the pull request means you accept the agreement below, for that
 contribution and for every later contribution you make to this repository.
 
+## When we review and merge
+
+Review and merge usually happen between Friday and Sunday, UTC+8. The window is a
+habit of two maintainers with other work, not a service commitment. A pull request
+that waits over a weekday is waiting for a person, not rejected.
+
 ## What we will not merge
 
 - Any file whose copyright header or `SPDX-License-Identifier` line has been removed or altered.
