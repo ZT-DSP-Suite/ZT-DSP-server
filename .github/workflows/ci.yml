@@ -16,8 +16,12 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, whatever it targets. Restricting this to main left
+  # stacked pull requests with no CI at all: a branch based on another feature
+  # branch never matches main, so the jobs never ran and the gate silently did
+  # not apply to them. The workflow reads no secrets, so widening the trigger
+  # does not widen what a fork can reach.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -142,3 +146,8 @@ jobs:
           fi
           echo "$OUT"
           echo "$OUT" | grep -q 'ZT-DSP_SV-1.0.0'
+          # The revision suffix is part of the version contract: --version
+          # prints the same composed string the startup banner prints. This
+          # runs the real binary, which the fallback branch of check.sh
+          # item 9 cannot do.
+          echo "$OUT" | grep -q '(docs '
