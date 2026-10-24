@@ -1,0 +1,27 @@
+[package]
+name = "zt-dsp-server"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.80"
+description = "ZT-DSP 1.0.1 server: pairing and byte relay; the server never decrypts"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/ZT-DSP-Suite/ZT-DSP-server"
+readme = "README.md"
+
+[[bin]]
+name = "zt-dsp-server"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt-multi-thread", "macros", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

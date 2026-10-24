@@ -2,34 +2,48 @@
 
 ## Supported versions
 
-This repository is a **placeholder**: it contains no server implementation yet (phase: pre-specification).
-There is therefore no deployed server surface to report a vulnerability against.
+`ZT-DSP_SV-1.0.0` is now an actual implementation. The data plane is the supported
+surface.
 
-| Version | Supported |
-|---|---|
-| `ZT-DSP_SV-1.0.0` (placeholder identifier) | No -- not an implementation |
+| Version | Supported | Notes |
+|---|---|---|
+| `ZT-DSP_SV-1.0.0` | Yes | current |
 
 ## Reporting a vulnerability
 
-Once a server implementation exists, vulnerabilities are reported through **private vulnerability reporting**:
+Use **private vulnerability reporting**:
 
 1. Open the repository on GitHub.
-2. Go to **Security** -> **Advisories** -> **Report a vulnerability**.
+2. Go to **Security** → **Advisories** → **Report a vulnerability**.
 
-> That channel only works after **Settings -> Code security -> Enable private vulnerability reporting** is turned on.
-> It is **off by default** on a new repository. Until it is enabled, open a public issue that contains no exploit
-> details, and the maintainer will move the discussion to a private channel.
+> That channel only works after **Settings → Code security → Enable private vulnerability
+> reporting** is turned on. It is **off by default** on a new repository. Until it is enabled,
+> open a public issue that contains no exploit details, and the maintainer will move the
+> discussion to a private channel.
 
 ## What counts as in scope
 
-- **In scope**: the implemented server code, its build and release pipeline, its configuration and CI,
-  and protocol-document errors that would make the two client implementations diverge.
-- **Out of scope**: unimplemented design ideas, documentation wording, non-security feature requests.
-- **Mirror consistency is in scope**: if `cn/` and `en/` disagree and the disagreement touches a
-  security statement (for example a restriction stated in only one language), report it as a security
-  issue rather than a documentation bug.
+- **In scope** — the implementation itself:
+  - any path that lets the server observe plaintext it should not (phase-2/3/4 content),
+  - any path that lets a probe distinguish a rejected handshake from a closed port,
+  - pairing bugs that let a third party join a session it did not request,
+  - memory exhaustion from forged length fields,
+  - control-plane authentication bypass.
+- **Also in scope** — protocol-document errors that would make implementations diverge,
+  and `cn/` ↔ `en/` disagreements that touch a security statement.
+- **Out of scope**: TCA/CRL behaviour (separate authority), traffic analysis by a global
+  passive adversary, documentation wording, feature requests.
+
+## Disclosures we would consider severe
+
+| Class | Example |
+|---|---|
+| Confidentiality break | Server can reconstruct any session key or plaintext |
+| Identity linkability | Server logs or derives who talks to whom |
+| Pairing hijack | Attacker joins a session between two honest peers |
+| Silent-drop defeat | A probe can enumerate valid token hashes via timing or reset behaviour |
 
 ## Disclosure timeline
 
-Coordinated disclosure through the private channel. No response-time commitment is published for this
-placeholder repository.
+Coordinated disclosure through the private channel. No fixed response-time commitment is
+published; acknowledgement typically happens within a few days.
