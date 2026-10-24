@@ -185,6 +185,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         role = version::ROLE,
         prefix = version::ROLE_PREFIX,
         code = version::CODE_VERSION,
+        release = version::IMPLEMENTATION_ID,
+        build = version::BUILD_ID,
         doc = version::FOLLOWS_DOC,
         doc_path = version::FOLLOWS_DOC_PATH,
         applies_to = ?version::APPLIES_TO_DOC_VERSIONS,
