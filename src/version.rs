@@ -9,7 +9,7 @@ pub const FOLLOWS_DOC: &str = "ZT-DSP Protocol Master Guide";
 pub const FOLLOWS_DOC_PATH: &str = "ZT-DSP-docs/en/spec/ZT-DSP-1.0.1-Master_Guide.md";
 
 /// 本实现适用的总指导版本（多对多，可多项）。
-pub const APPLIES_TO_DOC_VERSIONS: &[&str] = &["1.0.0", "1.0.1"];
+pub const APPLIES_TO_DOC_VERSIONS: &[&str] = &["1.0.0", "1.0.1", "1.0.2"];
 
 /// 总指导版本号（仅用于文档修订计数，不参与网络通信）。
 pub const DOCS_VERSION: &str = "1.0.1";

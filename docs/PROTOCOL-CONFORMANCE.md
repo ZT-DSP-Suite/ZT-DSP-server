@@ -14,7 +14,7 @@ Reference: **ZT-DSP 1.0.1**, `cn/spec/ZT-DSP-1.0.1-总指导.md`
 |---|---|
 | Server only forwards envelopes; cannot decrypt (§4.2 line 254) | After pairing, `relay_pair` moves bytes and never inspects payload |
 | Server reads only phase-1 routing material | `frame::read_phase1` extracts the two 32-byte token hashes |
-| Must not log pairing information (line 978) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. |
+| Must not log pairing information (line 979) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. |
 | Worst case is availability, not confidentiality (line 972) | Structural: no key material reaches the server |
 
 ## 2. Appendix F.0 — framing
@@ -129,3 +129,57 @@ Implemented as documented extensions that never affect the data plane:
 - identity directory (`l4::Directory`), off by default
 
 See [`CONTROL-API.md`](CONTROL-API.md).
+
+## 10. Known deviations
+
+Two places where the implementation cannot satisfy a requirement as literally
+written, or where the requirement does not decide the case. Stated here rather
+than left implied, so a reviewer can accept them or send them back.
+
+### 10.1 `debug`-level lines carry the peer socket address
+
+The row in §1 says peer addresses appear only at `debug`. The specification
+forbids logging *pairing information* (line 979). Whether an IP address and
+port count as pairing information is not something the text decides.
+
+Our reading is that it does not. An address says which endpoint opened a
+socket; it does not say who they are trying to reach, and the token hashes and
+session ids that would be needed to reconstruct a pairing are never logged at
+any level. The address is what tells an operator where a connection was
+rejected.
+
+If the document owner reads it the other way, the fix is to drop the `peer`
+field from the six `debug!` sites and keep the error cause. That is one line
+per site and touches nothing on the data plane.
+
+### 10.2 `offline_pull` does not prove ownership of the destination
+
+`control::State::handle` serves `OfflinePull { dst, max }` to any caller that
+presents the control-plane token, without checking that the caller owns `dst`.
+The token guards the whole control plane rather than each mailbox within it.
+
+What that does and does not expose:
+
+- **Not confidentiality.** The payload is opaque. The server holds no key and
+  never has, so what a caller receives is the ciphertext the sender left,
+  not plaintext.
+- **Metadata.** Which destinations are receiving mail, how much, and when.
+  That is the pairing-adjacent information line 979 warns about.
+- **Integrity and availability.** `pull` removes what it takes (`pop_front`),
+  so a caller can destroy mail that was not addressed to them; `push` accepts
+  bytes for any destination, so a caller can inject.
+
+The asymmetry is the point. Group pulls do check membership — `Groups::pull`
+returns `NotAMember` without revealing whether the group exists — and the
+offline queue has no equivalent check.
+
+There are two ways to close it, and they are not equivalent:
+
+- bind each pull to the destination's own credential. The control plane then
+  learns who is asking, which is the same disclosure line 979 warns about;
+- or leave it and state plainly that the control plane is a
+  fully-trusted-operator interface, not a multi-tenant one.
+
+The second is what this implementation does, which is why the control plane is
+off by default, bound to loopback when enabled, and refuses to start without a
+token.
