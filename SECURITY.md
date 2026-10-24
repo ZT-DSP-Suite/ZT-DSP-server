@@ -2,12 +2,12 @@
 
 ## Supported versions
 
-`ZT-DSP_SV-1.0.0-20261024` is now an actual implementation. The data plane is the supported
+`ZT-DSP_SV-1.0.0-20261025` is now an actual implementation. The data plane is the supported
 surface.
 
 | Version | Supported | Notes |
 |---|---|---|
-| `ZT-DSP_SV-1.0.0-20261024` | Yes | current |
+| `ZT-DSP_SV-1.0.0-20261025` | Yes | current |
 
 ## Reporting a vulnerability
 

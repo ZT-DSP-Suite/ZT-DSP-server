@@ -25,14 +25,14 @@ pub const CODE_VERSION: &str = "1.0.0";
 
 /// 开发版日期段：未进入发布候选的构建带 `-YYYYMMDD`；发布候选与正式版留空。
 /// 取该次提交日，UTC+8。
-pub const BUILD_DATE: &str = "20261024";
+pub const BUILD_DATE: &str = "20261025";
 
 /// 发布形态的实现标识 `ZT-DSP_SV-1.0.0`，供兼容清单使用。
 pub const IMPLEMENTATION_ID: &str = concat!("ZT-DSP_", "SV", "-", "1.0.0");
 
 /// 本构建的标识（开发版，含日期段）。clap 的 `version` 需要编译期常量，
 /// 因此这里写成字面量；单元测试守住它与 `implementation_id()` 相等。
-pub const BUILD_ID: &str = concat!("ZT-DSP_", "SV", "-", "1.0.0-", "20261024");
+pub const BUILD_ID: &str = concat!("ZT-DSP_", "SV", "-", "1.0.0-", "20261025");
 
 /// 组合 `ZT-DSP_<前缀>-<版本>[-<YYYYMMDD>]`。
 ///
@@ -72,8 +72,8 @@ mod tests {
     #[test]
     fn version_contract() {
         assert_eq!(IMPLEMENTATION_ID, "ZT-DSP_SV-1.0.0");
-        assert_eq!(BUILD_DATE, "20261024");
-        assert_eq!(BUILD_ID, "ZT-DSP_SV-1.0.0-20261024");
+        assert_eq!(BUILD_DATE, "20261025");
+        assert_eq!(BUILD_ID, "ZT-DSP_SV-1.0.0-20261025");
         assert_eq!(implementation_id(), BUILD_ID);
         assert_eq!(
             implementation_identifier("SV", "1.0.0", ""),
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn format_version_is_single_line() {
         let s = format_version();
-        assert!(s.starts_with("ZT-DSP_SV-1.0.0-20261024"));
+        assert!(s.starts_with("ZT-DSP_SV-1.0.0-20261025"));
         assert!(!s.contains('\n'));
     }
 }
