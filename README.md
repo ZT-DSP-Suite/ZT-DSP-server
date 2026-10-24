@@ -81,7 +81,7 @@ cargo build --release --target x86_64-unknown-linux-gnu
 See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for systemd units, profiles and
 operational guidance.
 
-## Documents
+## 按什么找
 
 | Document | Contents |
 |---|---|
@@ -93,7 +93,7 @@ operational guidance.
 | [`cn/README.md`](cn/README.md) | 中文完整说明 |
 | [`en/README.md`](en/README.md) | English full description |
 
-## Repository map
+## 这里有什么
 
 ```
 src/

@@ -10,7 +10,7 @@
 | 语言 | Rust（edition 2021，MSRV 1.80） |
 | 产物 | 单文件静态二进制，`aarch64` / `x86_64` 双架构 |
 | 运行时依赖 | 无（不需要数据库、消息队列、TLS 终结器） |
-| 服务端版本 | `ZT-DSP_SV-1.0.0` |
+| 服务端版本 | `ZT-DSP_SV-1.0.0-20261024` |
 | 许可 | AGPL-3.0-or-later **或** 商业授权 |
 
 ## 这是什么
@@ -121,7 +121,7 @@ cargo build --release
 
 完整的操作者能力边界见 [`../docs/THREAT-MODEL.md`](../docs/THREAT-MODEL.md)。
 
-## 目录
+## 这里有什么
 
 ```
 src/
@@ -139,6 +139,13 @@ src/
 tests/           integration.rs（随 cargo test 运行）+ 两个手动验收脚本
 docs/            架构、一致性、控制面、威胁模型、部署
 ```
+
+## 按什么找
+
+- 协议对照：`docs/PROTOCOL-CONFORMANCE.md`
+- 部署与运行：`docs/DEPLOYMENT.md`
+- 模块划分：`docs/ARCHITECTURE.md`
+- 控制面：`docs/CONTROL-API.md`
 
 ## 适用关系（多对多）
 

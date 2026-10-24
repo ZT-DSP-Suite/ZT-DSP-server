@@ -6,6 +6,17 @@
 
 服务端复用它，而不是各写一份 —— 一致性向量一旦分叉就没有意义。
 
+## 这里有什么
+
+| 文件 | 内容 |
+|---|---|
+| `vectors.json` | 共享一致性向量，逐字节取自 `ZT-DSP-client` 仓 |
+
+## 按什么找
+
+- 消费点：`src/version.rs` 的 `labels_match_the_spec_verbatim`。
+- 源文件：`ZT-DSP-client/test-vectors/vectors.json`。
+
 ## 服务端怎么用它
 
 服务端**不解密、不派生密钥**，所以这 9 个向量里绝大多数对它没有直接约束。

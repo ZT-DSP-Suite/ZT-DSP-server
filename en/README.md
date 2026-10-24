@@ -11,7 +11,7 @@
 | Language | Rust (edition 2021, MSRV 1.80) |
 | Artifact | single static binary, `aarch64` / `x86_64` |
 | Runtime deps | none (no database, no broker, no TLS terminator) |
-| Server version | `ZT-DSP_SV-1.0.0` |
+| Server version | `ZT-DSP_SV-1.0.0-20261024` |
 | Licence | AGPL-3.0-or-later **or** commercial |
 
 ## What this is
@@ -131,7 +131,7 @@ someone else's session by guessing a target hash.
 
 Full operator capability statement: [`../docs/THREAT-MODEL.md`](../docs/THREAT-MODEL.md).
 
-## Layout
+## 这里有什么
 
 ```
 src/
@@ -149,6 +149,13 @@ src/
 tests/           integration.rs (runs under cargo test) plus two manual scripts
 docs/            architecture, conformance, control API, threat model, deployment
 ```
+
+## 按什么找
+
+- Protocol mapping: `docs/PROTOCOL-CONFORMANCE.md`
+- Build and run: `docs/DEPLOYMENT.md`
+- Module map: `docs/ARCHITECTURE.md`
+- Control plane: `docs/CONTROL-API.md`
 
 ## Version applicability (many-to-many)
 
