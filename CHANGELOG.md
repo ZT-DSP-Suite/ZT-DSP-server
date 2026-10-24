@@ -110,6 +110,14 @@ the version contract from `src/version.rs`.
   implementation exists. It now checks licence headers and mirror consistency instead.
 - `SECURITY.md` updated: there is now a deployed surface to report against.
 
+### Fixed
+
+- **The README overstated the AGPL network clause.** "Network use counts as
+  distribution" demanded more than AGPL section 13 does: unmodified network
+  deployments carry no source-offering duty. The bullet now states the actual
+  requirement — serving a modified version over a network requires offering
+  its Corresponding Source — matching LICENSING.md §1.
+
 ### Removed
 
 - The "placeholder repository" notice from all three READMEs.
