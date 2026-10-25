@@ -24,7 +24,7 @@ pub const ROLE_PREFIX: &str = "SV";
 pub const CODE_VERSION: &str = "1.0.0";
 
 /// 开发版日期段：未进入发布候选的构建带 `-YYYYMMDD`；发布候选与正式版留空。
-/// 取该次提交日，UTC+8。
+/// Manually maintained: updated by hand at commit time, not derived from the commit date.
 pub const BUILD_DATE: &str = "20261025";
 
 /// 发布形态的实现标识 `ZT-DSP_SV-1.0.0`，供兼容清单使用。
