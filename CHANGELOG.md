@@ -87,10 +87,10 @@ the version contract from `src/version.rs`.
 - **test-vectors/** reuses the client repository's shared vectors, with a test that
   keeps the -v3 derivation-label convention in lockstep with the client.
 
-- **Source consolidated into a single file** (`src/main.rs`), per the collection rule in
-  `ZT-DSP-client/cn/README.md`: one implementation is one file, and the mainline directory
-  does not grow a directory tree. Module boundaries are kept as inline `mod` blocks, and
-  their `pub` surface is narrowed accordingly.
+- **Source consolidated into a single file** (`src/main.rs`). The single-file collection
+  rule in `ZT-DSP-client/cn/README.md` is dropped: implementations follow the ordinary
+  engineering layout of the language in use. Module boundaries are kept as inline `mod`
+  blocks, and their `pub` surface is narrowed accordingly.
 - **Version contract declared** in `src/main.rs` (`mod version`): `FOLLOWS_DOC`,
   `FOLLOWS_DOC_PATH`, `APPLIES_TO_DOC_VERSIONS`, plus `IMPLEMENTATION_ID` and
   `format_version()`. The same shape as `zt_dsp_py/version.py` and `zt_dsp_rs/version.rs`,
