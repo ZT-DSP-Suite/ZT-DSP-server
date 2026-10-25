@@ -131,7 +131,7 @@ someone else's session by guessing a target hash.
 
 Full operator capability statement: [`../docs/THREAT-MODEL.md`](../docs/THREAT-MODEL.md).
 
-## 这里有什么
+## Layout
 
 ```
 src/
@@ -150,7 +150,7 @@ tests/           integration.rs (runs under cargo test) plus two manual scripts
 docs/            architecture, conformance, control API, threat model, deployment
 ```
 
-## 按什么找
+## Documents
 
 - Protocol mapping: `docs/PROTOCOL-CONFORMANCE.md`
 - Build and run: `docs/DEPLOYMENT.md`
