@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (c) 2026 ZT-DSP Suite contributors
 
-//! ZT-DSP 1.0.1 服务端：登记 → 配对 → 中继，全程不解密。
+//! ZT-DSP 服务端：登记 → 配对 → 中继，全程不解密。
 //!
 //! 每个协议面一个模块：附录 F 的帧解析、等候池配对、静默丢弃、字节中继、
 //! 附录 B.2 三档配置、L4 存储、控制面各自分离；模块边界与可见性和合并前一致。
@@ -48,7 +48,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, ValueEnum};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{timeout, Instant};
@@ -88,7 +88,7 @@ impl From<ProfileArg> for Profile {
 #[command(
     name = "zt-dsp-server",
     version = version::IMPLEMENTATION_ID,
-    about = "ZT-DSP 1.0.1 server"
+    about = "ZT-DSP relay server"
 )]
 struct Args {
     #[arg(long)]
@@ -151,7 +151,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
 
-    let args = Args::parse();
+    // clap default --version prints only the implementation id, while the
+    // startup banner prints the composed form, which also carries the
+    // document revision. Hand clap the same composed string so the two
+    // cannot disagree, and keep format_version() the single source of it.
+    // The clap "string" feature lets Command own the value, so no leaked
+    // allocation is needed to fake a 'static lifetime.
+    let cmd = Args::command().version(version::format_version());
+    let args = Args::from_arg_matches(&cmd.get_matches()).unwrap_or_else(|e| e.exit());
 
     let mut cfg = match &args.config {
         Some(p) => Config::load(p)?,

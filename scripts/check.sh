@@ -156,6 +156,36 @@ else
   bad 'THIRD-PARTY-NOTICES.md is missing'
 fi
 
+echo '== 9. version banner form =='
+# The startup banner and --version both have to carry the document revision,
+# and they have to agree. Running the built binary is the only way to see the
+# shape a user actually gets; with nothing built yet, at least confirm the
+# composed form still contains the suffix and that the banner reads it.
+banner_bin=''
+for c in target/release/zt-dsp-server target/debug/zt-dsp-server; do
+  [ -x "$c" ] && banner_bin=$c && break
+done
+if [ -n "$banner_bin" ]; then
+  v_out=$("$banner_bin" --version 2>/dev/null || true)
+  case "$v_out" in
+    *'(docs '*) note "built binary reports the document revision: $v_out" ;;
+    *) bad "built binary omits the (docs <revision>) suffix: $v_out" ;;
+  esac
+else
+  # Three assertions, each guarding one way this can regress:
+  #   command().version(  -- clap is wired to the composed string, not the bare id
+  #   format_version      -- the composed string still comes from version.rs
+  #   '(docs '            -- the composed string still carries the revision
+  # The base code passed a two-grep fallback with the clap wiring reverted,
+  # so the wiring itself is asserted here.
+  if grep -q 'command().version(' src/main.rs \
+     && grep -q 'format_version' src/main.rs \
+     && grep -q '(docs ' src/version.rs; then
+    note 'version wiring carries the document revision (nothing built yet)'
+  else
+    bad 'version banner has no document revision'
+  fi
+fi
 echo
 if [ $fails -ne 0 ]; then
   printf 'check.sh: FAILED (%d)\n' "$fails"
