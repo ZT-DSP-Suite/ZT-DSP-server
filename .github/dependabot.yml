@@ -2,6 +2,12 @@
 #
 # This repository currently carries no build dependencies; it is a placeholder.
 # The entry is kept so the workflow file is covered if one is added.
+#
+# Version-update proposals are off (open-pull-requests-limit: 0): the weekly
+# proposals kept arriving as pull requests, and robot pull requests are not
+# merged by policy. The pins move only when a maintainer applies the change
+# in a signed commit. Alert-driven security fixes stay governed by the
+# repository security settings, not by this file.
 version: 2
 
 updates:
@@ -9,5 +15,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, ci]

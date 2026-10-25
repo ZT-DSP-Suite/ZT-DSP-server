@@ -112,6 +112,16 @@ the version contract from `src/version.rs`.
 
 ### Fixed
 
+- **A word-sweep commit mangled the legal texts.** The 2026-10-18 sweep mapped
+  "official" to "published" in the English trademark section and 「官方」 to
+  「参考」 in the Chinese one. The prohibition list then read "published,
+  reference, canonical" / 「参考」「参考」「标准」 — publishing a fork is
+  allowed, so the list forbade something permitted and lost its object — and
+  the package names stopped being marked out as the official ones. The same
+  commit put the nonexistent word "publishedly" into CODE_OF_CONDUCT.md. All
+  four TRADEMARK lines and the CoC word are restored to their pre-sweep
+  wording, byte-identical to the text before the sweep and matching the
+  client and docs trademark files.
 - **The README overstated the AGPL network clause.** "Network use counts as
   distribution" demanded more than AGPL section 13 does: unmodified network
   deployments carry no source-offering duty. The bullet now states the actual
