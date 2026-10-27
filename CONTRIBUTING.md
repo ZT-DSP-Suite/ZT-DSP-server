@@ -16,7 +16,6 @@ cargo build --release      # single static binary
 cargo test                 # unit tests
 python3 tests/e2e.py       # end-to-end: pairing, relay, large transfer
 python3 tests/l3_l4.py     # silent drop + control plane
-bash scripts/check.sh      # repository guard
 ```
 
 MSRV is 1.80. The `release` profile uses thin LTO and strips symbols.
