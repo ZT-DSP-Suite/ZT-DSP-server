@@ -125,7 +125,7 @@ One Tokio task per connection, plus one housekeeping task.
 |---|---|
 | accept loop | one per listener |
 | connection task | parser → lobby → relay (or silence) |
-| reaper | every 5 s: sweep stale lobby entries, expired envelopes, old directory rows |
+| reaper | stale lobby entries every `sweep_lobby_secs` (5 s); expired envelopes and directory rows every `sweep_storage_secs` (60 s) |
 
 State is shared through `Arc<Shared>` with a `Mutex` only around the per-IP counter,
 the waiting pool, and the L4 stores. The relay path takes no locks at all.

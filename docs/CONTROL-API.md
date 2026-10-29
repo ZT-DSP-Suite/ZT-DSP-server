@@ -41,8 +41,16 @@ offline queues.
 
 ```json
 {"ok": true, "data": { … }}
-{"ok": false, "error": "human-readable reason"}
+{"ok": false, "error_code": "not_found", "error": "human-readable reason"}
 ```
+
+`data` is omitted on failure. `error` and `error_code` are omitted on success.
+`error_code` is the stable machine-readable value; `error` is prose and may change.
+Requests carrying unknown fields are rejected outright.
+
+The codes are `bad_request`, `disabled`, `payload_too_large`, `not_found`,
+`not_a_member`, `already_exists`, `group_full`, `group_limit`, `recipient_limit`
+and `internal`.
 
 `data` is omitted on failure; `error` is omitted on success.
 
@@ -79,7 +87,9 @@ Queue an envelope for a recipient that is not currently connected.
 - Envelope size is capped by `offline.max_payload` per profile.
 - When a recipient's queue is full, the **oldest** envelope is evicted (FIFO), so a
   newly arriving message is never lost to a stale one.
-- Envelopes expire after `offline.ttl_secs`; the reaper removes them every 5 seconds.
+- Envelopes expire after `offline.ttl_secs`; the reaper scans them every
+  `sweep_storage_secs` (60 s by default), not every 5 seconds — 5 s is the lobby
+  sweep cadence.
 
 ### `offline_pull`
 
@@ -149,8 +159,9 @@ per-caller opt-in.
 
 | Condition | Response |
 |---|---|
-| Malformed JSON | `{"ok":false,"error":"请求解析失败…"}`; connection stays open |
+| Malformed JSON | `{"ok":false,"error_code":"bad_request","error":"请求解析失败…"}`; connection stays open |
 | Unknown `op` | Parse error (serde rejects unknown variants) |
-| Feature disabled by profile | `{"ok":false,"error":"该功能在当前档位被关闭"}` |
-| Oversized payload | `{"ok":false,"error":"载荷超过上限 N 字节"}` |
-| Non-member group operation | `{"ok":false,"error":"未找到"}` |
+| Unknown field in an object | Rejected outright (`deny_unknown_fields`) |
+| Feature disabled by profile | `{"ok":false,"error_code":"disabled","error":"该功能在当前档位被关闭"}` |
+| Oversized payload | `{"ok":false,"error_code":"payload_too_large","error":"载荷超过上限 N 字节"}` |
+| Non-member group operation | `{"ok":false,"error_code":"not_a_member","error":"不是该群成员"}` — deliberately not `not_found`, so a probe cannot learn whether the group exists |
