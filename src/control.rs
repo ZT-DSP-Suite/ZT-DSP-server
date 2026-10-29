@@ -30,6 +30,11 @@ pub const MAX_CONTROL_CONNS: usize = 16;
 pub const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// 单连接允许的鉴权失败次数
 pub const MAX_AUTH_FAILURES: u32 = 5;
+/// accept 出错后的退避，与数据面 `accept_backoff_ms` 同值。
+///
+/// 没有它，EMFILE 之类的瞬时错误会让控制面 accept 循环满速重试，把一次
+/// 资源耗尽变成一次 CPU 耗尽；数据面早已退避，控制面此前没有。
+pub const ACCEPT_BACKOFF: Duration = Duration::from_millis(50);
 
 /// 控制面共享状态。
 pub struct ControlState {
@@ -186,6 +191,9 @@ pub async fn serve(addr: SocketAddr, state: Arc<ControlState>) -> std::io::Resul
             Ok(v) => v,
             Err(err) => {
                 warn!(error = %err, "控制面 accept 失败");
+                // 不退避的后果是满速重试：一次 EMFILE 会变成一次 CPU 耗尽。
+                // 数据面的 accept 循环已经这么做了，控制面此前漏掉了。
+                tokio::time::sleep(ACCEPT_BACKOFF).await;
                 continue;
             }
         };
@@ -253,6 +261,10 @@ async fn handle(stream: TcpStream, state: Arc<ControlState>) -> std::io::Result<
             Ok(Req::Auth { token }) => {
                 if ct_eq(token.as_bytes(), state.token.as_bytes()) {
                     authed = true;
+                    // 成功一次就把失败预算还回去。不清零的话，一个先试错四次、
+                    // 再成功登录的运维脚本会在下一次手误时立刻被断开 —— 预算
+                    // 本该按「连续失败」计，而不是按连接生命周期累计。
+                    failures = 0;
                     Resp::ok(serde_json::json!({"authed": true}))
                 } else {
                     failures += 1;

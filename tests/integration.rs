@@ -144,3 +144,78 @@ fn refuses_to_start_control_plane_without_token() {
         .expect("run server");
     assert!(!out.status.success(), "启用控制面却不给口令时必须启动失败");
 }
+
+fn connect_with_retry(port: u16) -> TcpStream {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+            return s;
+        }
+        assert!(Instant::now() < deadline, "端口 {port} 在 10 秒内未就绪");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn read_line(s: &mut TcpStream) -> String {
+    let mut buf = Vec::new();
+    let mut b = [0u8; 1];
+    loop {
+        match s.read(&mut b) {
+            Ok(0) => panic!("读行途中连接被关闭"),
+            Ok(_) => {
+                if b[0] == b'\n' {
+                    return String::from_utf8(buf).expect("响应必须是 UTF-8");
+                }
+                buf.push(b[0]);
+            }
+            Err(err) => panic!("读行失败: {err}"),
+        }
+    }
+}
+
+fn auth(s: &mut TcpStream, token: &str) -> bool {
+    let line = format!("{{\"op\":\"auth\",\"token\":\"{token}\"}}\n");
+    s.write_all(line.as_bytes()).expect("写鉴权请求");
+    s.flush().expect("flush");
+    read_line(s).contains("\"authed\":true")
+}
+
+/// 失败预算按「连续失败」计，而不是按连接生命周期累计。
+///
+/// 此前成功鉴权不清零：先试错四次、再成功登录的脚本，只要再手误一次就累计到
+/// 5 次并被断开。这里走 4 次错误 → 1 次成功 → 1 次错误 → 1 次成功，
+/// 第二次成功必须仍然可达。
+#[test]
+fn a_successful_auth_resets_the_failure_budget() {
+    const TOKEN: &str = "integration-test-token";
+    let port = free_port();
+    let cport = free_port();
+
+    let child = Command::new(env!("CARGO_BIN_EXE_zt-dsp-server"))
+        .args([
+            "--listen",
+            &format!("127.0.0.1:{port}"),
+            "--control",
+            &format!("127.0.0.1:{cport}"),
+            "--control-token",
+            TOKEN,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn server");
+    let _srv = Server { child };
+
+    let mut c = connect_with_retry(cport);
+    c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+
+    for attempt in 1..=4 {
+        assert!(!auth(&mut c, "wrong"), "第 {attempt} 次错误口令应被拒");
+    }
+    assert!(auth(&mut c, TOKEN), "正确口令应通过");
+    assert!(!auth(&mut c, "wrong"), "成功后再错一次应被拒");
+    assert!(
+        auth(&mut c, TOKEN),
+        "成功鉴权必须把失败预算清零；否则这里已累计 5 次失败并被断开"
+    );
+}
