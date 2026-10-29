@@ -404,4 +404,68 @@ mod tests {
         let r = Config::load(Path::new("/nonexistent/zt.toml"));
         assert!(r.is_err(), "配置文件不存在必须报错退出，不能静默降级");
     }
+
+    /// `docs/DEPLOYMENT.md` §5 的示例必须真的能启动。
+    ///
+    /// 此前的示例缺 `offline.max_recipients`、`group.max_groups` 与六个超时字段，
+    /// 正文却写着「未指定的字段回落到档位默认」—— 照抄示例会直接
+    /// `missing field \`max_recipients\`` 退出。这个测试把示例钉住：改文档就得改这里。
+    #[test]
+    fn deployment_example_is_loadable() {
+        const EXAMPLE: &str = r#"{
+  "listen": "0.0.0.0:7443",
+  "control_listen": "127.0.0.1:7444",
+  "profile": "advanced",
+  "handshake_timeout_secs": 15,
+  "lobby_timeout_secs": 30,
+  "idle_timeout_secs": 0,
+  "max_connections": 20000,
+  "max_per_ip": 128,
+  "buffer_bytes": 32768,
+  "offline": {
+    "enabled": true,
+    "max_payload": 262144,
+    "max_per_recipient": 100,
+    "max_recipients": 100000,
+    "ttl_secs": 604800
+  },
+  "group": {
+    "enabled": true,
+    "max_members": 256,
+    "max_groups": 50000,
+    "max_payload": 262144
+  },
+  "directory": { "enabled": false, "ttl_secs": 3600 },
+  "control_read_timeout_secs": 30,
+  "control_write_timeout_secs": 30,
+  "relay_write_timeout_secs": 30,
+  "accept_backoff_ms": 50,
+  "sweep_lobby_secs": 5,
+  "sweep_storage_secs": 60
+}"#;
+
+        let c: Config = serde_json::from_str(EXAMPLE).expect("DEPLOYMENT.md §5 的示例必须可解析");
+        c.validate()
+            .expect("DEPLOYMENT.md §5 的示例必须通过启动校验");
+        assert_eq!(c.profile, Profile::Advanced);
+
+        // 示例必须是 --dump-config 的完整输出：少一个字段就与文档承诺不符。
+        let dumped: Config =
+            serde_json::from_str(&serde_json::to_string(&c).expect("可序列化")).expect("可回读");
+        assert_eq!(dumped.max_connections, c.max_connections);
+        assert_eq!(dumped.offline.max_recipients, c.offline.max_recipients);
+        assert_eq!(dumped.group.max_groups, c.group.max_groups);
+    }
+
+    /// 缺字段必须是启动错误，而不是静默回落到档位默认 —— 文档曾反过来写。
+    #[test]
+    fn a_partial_config_file_is_rejected_not_patched() {
+        let partial = r#"{"listen":"0.0.0.0:7443"}"#;
+        let r: Result<Config, _> = serde_json::from_str(partial);
+        let err = r.expect_err("缺字段必须报错");
+        assert!(
+            err.to_string().contains("missing field"),
+            "错误应指明缺了哪个字段，实际: {err}"
+        );
+    }
 }

@@ -93,7 +93,16 @@ WantedBy=multi-user.target
 
 ## 5. Configuration file
 
-`--config` takes a JSON file; unspecified fields fall back to the profile default.
+`--config` takes a JSON file. **Every field must be present.** The loader does not
+merge a partial file with the profile defaults, so one missing field is a startup
+error, not a fallback:
+
+```
+Error: Parse { path: "...", source: Error("missing field `max_recipients`", ...) }
+```
+
+Generate a complete file with `--dump-config`, then edit what you need. The example
+below is exactly what `--dump-config` prints for `--profile advanced`.
 
 ```json
 {
@@ -106,11 +115,33 @@ WantedBy=multi-user.target
   "max_connections": 20000,
   "max_per_ip": 128,
   "buffer_bytes": 32768,
-  "offline": { "enabled": true, "max_payload": 262144, "max_per_recipient": 100, "ttl_secs": 604800 },
-  "group":   { "enabled": true, "max_members": 256, "max_payload": 262144 },
-  "directory": { "enabled": false, "ttl_secs": 3600 }
+  "offline": {
+    "enabled": true,
+    "max_payload": 262144,
+    "max_per_recipient": 100,
+    "max_recipients": 100000,
+    "ttl_secs": 604800
+  },
+  "group": {
+    "enabled": true,
+    "max_members": 256,
+    "max_groups": 50000,
+    "max_payload": 262144
+  },
+  "directory": { "enabled": false, "ttl_secs": 3600 },
+  "control_read_timeout_secs": 30,
+  "control_write_timeout_secs": 30,
+  "relay_write_timeout_secs": 30,
+  "accept_backoff_ms": 50,
+  "sweep_lobby_secs": 5,
+  "sweep_storage_secs": 60
 }
 ```
+
+Note that `--profile` is ignored when `--config` is also given: the file's
+`profile` field wins for everything the file specifies, and the flag is not
+reported as unused.
+
 
 Print the effective configuration with `--dump-config`.
 
