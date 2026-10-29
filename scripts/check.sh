@@ -98,8 +98,52 @@ fi
 
 echo '== 2. no identity material in logs =='
 if load 'identity-in-logs' 'src/*.rs'; then
-  scan 'no log macro formats token hashes or session ids' \
-       '(info|warn|error|debug|trace)!\([^)]*(token_hash|session_id|\.identity)' none
+  # 单行 grep 会漏掉跨行书写的事件宏，而本仓库自己就有跨行的 debug!（main.rs
+  # 的 version contract 那段）。这里逐字符配对括号、跳过字符串字面量，把整个
+  # 宏调用体取出来再查，换行与嵌套括号都不再能绕过检查。
+  if python3 - $LIST <<'PY'
+import re
+import sys
+
+CALL = re.compile(r'\b(info|warn|error|debug|trace)!\s*\(')
+IDENT = re.compile(r'token_hash|session_id|\.identity')
+
+
+def call_body(src, open_idx):
+    """从 '(' 之后开始，配对到对应的 ')'，跳过字符串字面量。"""
+    depth, i, n = 1, open_idx, len(src)
+    while i < n and depth:
+        c = src[i]
+        if c == '"':
+            i += 1
+            while i < n and src[i] != '"':
+                i += 2 if src[i] == '\\' else 1
+            i += 1
+            continue
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+        i += 1
+    return src[open_idx:i]
+
+
+hits = []
+for path in sys.argv[1:]:
+    src = open(path, encoding='utf-8').read()
+    for m in CALL.finditer(src):
+        if IDENT.search(call_body(src, m.end())):
+            line = src[: m.start()].count('\n') + 1
+            hits.append(f'{path}:{line}: {m.group(1)}!() formats identity material')
+for hit in hits:
+    print(hit)
+sys.exit(1 if hits else 0)
+PY
+  then
+    note 'no log macro formats token hashes or session ids (multi-line aware)'
+  else
+    bad 'a log macro formats identity material (lines above)'
+  fi
 fi
 
 echo '== 3. bilingual mirrors =='
