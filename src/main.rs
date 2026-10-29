@@ -272,8 +272,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(cfg.listen).await?;
     info!(addr = %cfg.listen, "data plane listening");
 
+    // 收到 SIGTERM（systemd 的停止信号）或 SIGINT 后停止接受新连接，再给在途
+    // 连接一个宽限窗口。没有这一步，`systemctl stop` 与 SIGKILL 无异：所有会话
+    // 在同一瞬间硬断，日志里也不会留下「服务正在停止」这一行。
+    let mut term = term_signal();
+    let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
+
     loop {
-        let (stream, peer) = match listener.accept().await {
+        let accepted = tokio::select! {
+            r = listener.accept() => Some(r),
+            _ = wait_for_sigterm(&mut term) => {
+                info!("收到 SIGTERM，停止接受新连接");
+                None
+            }
+            _ = &mut ctrl_c => {
+                info!("收到 SIGINT，停止接受新连接");
+                None
+            }
+        };
+        let Some(accepted) = accepted else { break };
+
+        let (stream, peer) = match accepted {
             Ok(v) => v,
             Err(err) => {
                 // 不退避的话，EMFILE 之类的瞬时错误会变成满速重试
@@ -311,6 +330,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_conn(stream, peer, shared_state).await;
         });
     }
+
+    // 宽限：等在途连接自己收尾，最多 SHUTDOWN_GRACE。
+    let deadline = tokio::time::Instant::now() + SHUTDOWN_GRACE;
+    while tokio::time::Instant::now() < deadline {
+        if shared.metrics.active_conns.load(Ordering::Relaxed) == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let remaining = shared.metrics.active_conns.load(Ordering::Relaxed);
+    if remaining == 0 {
+        info!("shutdown complete, no connections were open");
+    } else {
+        warn!(
+            remaining,
+            "shutdown grace expired, closing the remaining connections"
+        );
+    }
+    Ok(())
+}
+
+/// 停机宽限：停止接受新连接后，等在途连接收尾的最长时间。
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+#[cfg(unix)]
+fn term_signal() -> Option<tokio::signal::unix::Signal> {
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok()
+}
+
+#[cfg(unix)]
+async fn wait_for_sigterm(sig: &mut Option<tokio::signal::unix::Signal>) {
+    match sig {
+        Some(s) => {
+            s.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
+}
+
+#[cfg(not(unix))]
+fn term_signal() {}
+
+#[cfg(not(unix))]
+async fn wait_for_sigterm(_: &mut ()) {
+    std::future::pending::<()>().await
 }
 
 async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, shared: Arc<Shared>) {

@@ -144,3 +144,28 @@ fn refuses_to_start_control_plane_without_token() {
         .expect("run server");
     assert!(!out.status.success(), "启用控制面却不给口令时必须启动失败");
 }
+
+/// SIGTERM 必须让进程停止接受连接并正常退出，而不是像 SIGKILL 那样被直接打死。
+#[cfg(unix)]
+#[test]
+fn exits_with_a_zero_status_on_sigterm() {
+    let port = free_port();
+    let mut srv = start_server(port);
+
+    let pid = srv.child.id().to_string();
+    let sent = Command::new("kill")
+        .args(["-TERM", &pid])
+        .status()
+        .expect("发送 SIGTERM");
+    assert!(sent.success(), "kill -TERM 应成功");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = srv.child.try_wait().expect("try_wait") {
+            assert!(status.success(), "SIGTERM 后应正常退出，实际 {status:?}");
+            return;
+        }
+        assert!(Instant::now() < deadline, "SIGTERM 后 10 秒内未退出");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
