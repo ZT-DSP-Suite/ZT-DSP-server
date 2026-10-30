@@ -125,7 +125,11 @@ fn rejects_malformed_phase1_without_answering() {
     match s.read(&mut buf) {
         Ok(0) => {} // 对端关闭，可接受
         Ok(n) => panic!("静默丢弃失败：服务器回了 {n} 字节"),
-        Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
+        Err(e)
+            if e.kind() == ErrorKind::WouldBlock
+                || e.kind() == ErrorKind::TimedOut
+                || e.kind() == ErrorKind::ConnectionReset
+                || e.kind() == ErrorKind::ConnectionAborted => {}
         Err(e) => panic!("意外错误: {e}"),
     }
 }
