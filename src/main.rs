@@ -151,6 +151,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
 
+    // 停机信号在这里就注册，不要等到 accept 循环跟前。
+    //
+    // unix::signal 在创建时就装上处理器；装得太晚的话，SIGTERM 落在装好之前
+    // 会被默认动作直接杀死进程（退出码 143），优雅停机根本没机会发生。
+    // 注册提前之后，「监听端口已经打开」也就意味着「处理器已经就位」。
+    let mut term = term_signal();
+    let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
+
     // clap default --version prints only the implementation id, while the
     // startup banner prints the composed form, which also carries the
     // document revision. Hand clap the same composed string so the two
@@ -278,9 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 收到 SIGTERM（systemd 的停止信号）或 SIGINT 后停止接受新连接，再给在途
     // 连接一个宽限窗口。没有这一步，`systemctl stop` 与 SIGKILL 无异：所有会话
     // 在同一瞬间硬断，日志里也不会留下「服务正在停止」这一行。
-    let mut term = term_signal();
-    let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
-
+    // 处理器在 main 开头就注册好了（见上），这里只是等它到来。
     loop {
         let accepted = tokio::select! {
             r = listener.accept() => Some(r),
