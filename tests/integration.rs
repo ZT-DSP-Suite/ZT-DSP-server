@@ -66,6 +66,44 @@ fn recvn(s: &mut TcpStream, n: usize) -> Vec<u8> {
     buf
 }
 
+/// 连上某个端口，等它真的开始监听。
+fn connect_with_retry(port: u16) -> TcpStream {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+            return s;
+        }
+        assert!(Instant::now() < deadline, "端口 {port} 在 10 秒内未就绪");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// 读一行控制面响应。
+fn read_line(s: &mut TcpStream) -> String {
+    let mut buf = Vec::new();
+    let mut b = [0u8; 1];
+    loop {
+        match s.read(&mut b) {
+            Ok(0) => panic!("读行途中连接被关闭"),
+            Ok(_) => {
+                if b[0] == b'\n' {
+                    return String::from_utf8(buf).expect("响应必须是 UTF-8");
+                }
+                buf.push(b[0]);
+            }
+            Err(err) => panic!("读行失败: {err}"),
+        }
+    }
+}
+
+/// 控制面鉴权，返回是否通过。
+fn auth(s: &mut TcpStream, token: &str) -> bool {
+    let line = format!("{{\"op\":\"auth\",\"token\":\"{token}\"}}\n");
+    s.write_all(line.as_bytes()).expect("写鉴权请求");
+    s.flush().expect("flush");
+    read_line(s).contains("\"authed\":true")
+}
+
 #[test]
 fn pairs_two_peers_and_relays_bytes() {
     let port = free_port();
@@ -168,4 +206,63 @@ fn exits_with_a_zero_status_on_sigterm() {
         assert!(Instant::now() < deadline, "SIGTERM 后 10 秒内未退出");
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// 停机日志必须把控制面连接也算进去。
+///
+/// 宽限只等数据面连接：控制面连接是长连，空闲时要等读超时才关，在宽限窗口内
+/// 不会自己结束，等它没有意义。但日志若只报数据面连接数，就会漏掉仍然开着的
+/// 控制面连接 —— 停机时那一条信息是唯一的现场记录。
+#[cfg(unix)]
+#[test]
+fn the_shutdown_log_counts_control_plane_connections() {
+    const TOKEN: &str = "integration-test-token";
+    let port = free_port();
+    let cport = free_port();
+
+    // stderr 落盘：停机那几行日志是这条测试要断言的东西。
+    let err_path = std::env::temp_dir().join(format!("zt-dsp-shutdown-{cport}.log"));
+    let err_file = std::fs::File::create(&err_path).expect("建 stderr 文件");
+    let child = Command::new(env!("CARGO_BIN_EXE_zt-dsp-server"))
+        .args([
+            "--listen",
+            &format!("127.0.0.1:{port}"),
+            "--control",
+            &format!("127.0.0.1:{cport}"),
+            "--control-token",
+            TOKEN,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(err_file))
+        .spawn()
+        .expect("spawn server");
+    let mut srv = Server { child };
+
+    // 留一条活的控制面连接：鉴权成功后连接保持打开。
+    let mut c = connect_with_retry(cport);
+    c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    assert!(auth(&mut c, TOKEN), "控制面鉴权应通过");
+
+    let pid = srv.child.id().to_string();
+    Command::new("kill")
+        .args(["-TERM", &pid])
+        .status()
+        .expect("发送 SIGTERM");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if srv.child.try_wait().expect("try_wait").is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "SIGTERM 后 10 秒内未退出");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let log = std::fs::read_to_string(&err_path).expect("读 stderr");
+    let _ = std::fs::remove_file(&err_path);
+
+    assert!(
+        log.contains("control_plane=1"),
+        "停机日志必须报出仍开着的控制面连接数，实际日志：\n{log}"
+    );
 }

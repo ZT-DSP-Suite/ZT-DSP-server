@@ -209,6 +209,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let offline = Arc::new(OfflineStore::new(cfg.offline.clone()));
     let groups = Arc::new(Groups::new(cfg.group.clone()));
     let directory = Arc::new(Directory::new(cfg.directory.clone()));
+    // 控制面连接数由 main 持有，停机时与数据面连接数一并报出。
+    let control_live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let shared = Arc::new(Shared {
         cfg: cfg.clone(),
@@ -227,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             groups: Arc::clone(&groups),
             directory: Arc::clone(&directory),
             metrics: Arc::clone(&metrics),
+            live_conns: Arc::clone(&control_live),
             token,
         });
         tokio::spawn(async move {
@@ -332,6 +335,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 宽限：等在途连接自己收尾，最多 SHUTDOWN_GRACE。
+    //
+    // 只等数据面连接：中继会话有明确的终点（对端发完就结束），而控制面连接是
+    // 长连，空闲时要等读超时才关，在宽限窗口内通常不会自己结束。等它没有意义。
     let deadline = tokio::time::Instant::now() + SHUTDOWN_GRACE;
     while tokio::time::Instant::now() < deadline {
         if shared.metrics.active_conns.load(Ordering::Relaxed) == 0 {
@@ -339,13 +345,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let remaining = shared.metrics.active_conns.load(Ordering::Relaxed);
-    if remaining == 0 {
+    let data_plane = shared.metrics.active_conns.load(Ordering::Relaxed);
+    let control_plane = control_live.load(Ordering::Relaxed);
+    if data_plane == 0 && control_plane == 0 {
         info!("shutdown complete, no connections were open");
     } else {
         warn!(
-            remaining,
-            "shutdown grace expired, closing the remaining connections"
+            data_plane,
+            control_plane, "shutdown grace expired, closing the remaining connections"
         );
     }
     Ok(())
