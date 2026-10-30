@@ -449,12 +449,17 @@ mod tests {
             .expect("DEPLOYMENT.md §5 的示例必须通过启动校验");
         assert_eq!(c.profile, Profile::Advanced);
 
-        // 示例必须是 --dump-config 的完整输出：少一个字段就与文档承诺不符。
-        let dumped: Config =
-            serde_json::from_str(&serde_json::to_string(&c).expect("可序列化")).expect("可回读");
-        assert_eq!(dumped.max_connections, c.max_connections);
-        assert_eq!(dumped.offline.max_recipients, c.offline.max_recipients);
-        assert_eq!(dumped.group.max_groups, c.group.max_groups);
+        // 示例必须与 `--dump-config --profile advanced --control 127.0.0.1:7444`
+        // 的输出逐字段相同。少一个字段就与文档承诺不符，多一个或取值不同同样不符。
+        // 比对序列化后的 JSON 而不是逐个字段挑着比，才不会漏掉新加的配置项。
+        let mut expected = Config::for_profile(Profile::Advanced);
+        expected.control_listen = Some("127.0.0.1:7444".parse().expect("合法地址"));
+        let expected = serde_json::to_value(&expected).expect("可序列化");
+        let actual = serde_json::to_value(&c).expect("可序列化");
+        assert_eq!(
+            actual, expected,
+            "DEPLOYMENT.md §5 的示例必须与 --dump-config --profile advanced --control 127.0.0.1:7444 的输出逐字段相同"
+        );
     }
 
     /// 缺字段必须是启动错误，而不是静默回落到档位默认 —— 文档曾反过来写。

@@ -102,7 +102,17 @@ Error: Parse { path: "...", source: Error("missing field `max_recipients`", ...)
 ```
 
 Generate a complete file with `--dump-config`, then edit what you need. The example
-below is exactly what `--dump-config` prints for `--profile advanced`.
+below is the output of
+
+```
+--dump-config --profile advanced --control 127.0.0.1:7444
+```
+
+field for field. The `--control` flag is part of the recipe: without it the dump
+prints `"control_listen": null`, because the control plane is off by default and
+`--dump-config` reports the configuration as it would be started. The example
+also formats `directory` on one line where the dump spreads it over four; the
+values are identical.
 
 ```json
 {
