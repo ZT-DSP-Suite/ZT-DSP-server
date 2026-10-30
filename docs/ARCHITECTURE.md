@@ -125,20 +125,12 @@ One Tokio task per connection, plus one housekeeping task.
 |---|---|
 | accept loop | one per listener |
 | connection task | parser → lobby → relay (or silence) |
-| reaper | every 5 s: sweep stale lobby entries, expired envelopes, old directory rows |
+| reaper | stale lobby entries every `sweep_lobby_secs` (5 s); expired envelopes and directory rows every `sweep_storage_secs` (60 s) |
 
 State is shared through `Arc<Shared>` with a `Mutex` only around the per-IP counter,
 the waiting pool, and the L4 stores. The relay path takes no locks at all.
 
-## 7. Repository guard
-
-`scripts/check.sh` was rewritten in the same change that introduced the implementation.
-The previous version rejected any `.rs` / `.toml` / `.py` file and required the READMEs
-to keep placeholder wording, so it would have refused this code outright. It now checks
-licence headers, absence of identity material in logs, bilingual mirror presence, absence
-of placeholder wording, and absence of documentation references to removed symbols.
-
-## 8. Limits
+## 7. Limits
 
 | Limit | Value | Source |
 |---|---|---|

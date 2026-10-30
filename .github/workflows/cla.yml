@@ -1,0 +1,31 @@
+# A pull request from a person must carry one line in its description:
+# `CLA-Agreed: yes`. Without that declaration the contribution cannot be
+# relicensed under the commercial track, so this check fails rather than warns.
+#
+# The workflow reads the event payload only. It checks out nothing and runs no
+# code from the pull request.
+name: CLA
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  declaration:
+    name: CLA declaration present
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.type != 'Bot'
+    steps:
+      - name: Require the acceptance line
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s\n' "$BODY" | grep -qx 'CLA-Agreed: yes'; then
+            echo 'CLA declaration found.'
+            exit 0
+          fi
+          echo '::error::The pull request description must contain the line: CLA-Agreed: yes'
+          exit 1
