@@ -131,6 +131,11 @@ the version contract from `src/version.rs`.
   four TRADEMARK lines and the CoC word are restored to their pre-sweep
   wording, byte-identical to the text before the sweep and matching the
   client and docs trademark files.
+- **The README overstated the AGPL network clause.** "Network use counts as
+  distribution" demanded more than AGPL section 13 does: unmodified network
+  deployments carry no source-offering duty. The bullet now states the actual
+  requirement — serving a modified version over a network requires offering
+  its Corresponding Source — matching LICENSING.md §1.
 
 ### Removed
 
