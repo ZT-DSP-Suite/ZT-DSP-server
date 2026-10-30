@@ -144,3 +144,30 @@ fn refuses_to_start_control_plane_without_token() {
         .expect("run server");
     assert!(!out.status.success(), "启用控制面却不给口令时必须启动失败");
 }
+
+/// 空口令不是「口令太弱」，而是「没有口令」：`ct_eq` 对两个空串返回真，
+/// 于是任何客户端都能用 `{"op":"auth","token":""}` 通过鉴权，控制面等于不设防。
+/// 命令行与 `ISOSTRESS_CONTROL_TOKEN` 两条入口都必须拒绝。
+#[test]
+fn refuses_to_start_control_plane_with_an_empty_token() {
+    let port = free_port();
+    let listen = format!("127.0.0.1:{port}");
+
+    for source in ["flag", "env"] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_isostress-server"));
+        cmd.args(["--listen", &listen, "--control", "127.0.0.1:0"]);
+        match source {
+            "flag" => {
+                cmd.args(["--control-token", ""]);
+            }
+            _ => {
+                cmd.env("ISOSTRESS_CONTROL_TOKEN", "");
+            }
+        }
+        let out = cmd.output().expect("run server");
+        assert!(
+            !out.status.success(),
+            "来自 {source} 的空口令必须让进程启动失败，实际却启动了"
+        );
+    }
+}
