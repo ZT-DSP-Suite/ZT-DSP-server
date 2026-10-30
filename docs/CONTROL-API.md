@@ -52,8 +52,6 @@ The codes are `bad_request`, `disabled`, `payload_too_large`, `not_found`,
 `not_a_member`, `already_exists`, `group_full`, `group_limit`, `recipient_limit`
 and `internal`.
 
-`data` is omitted on failure; `error` is omitted on success.
-
 ## Operations
 
 ### `ping`
