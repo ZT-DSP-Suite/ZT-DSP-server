@@ -73,7 +73,7 @@ fn start_server(port: u16) -> Server {
 
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        if connect_retry_interrupted(port).is_ok() {
             return srv;
         }
         // 服务端若已退出（例如端口被占导致绑定失败），错误信息里要看得出来，
@@ -84,6 +84,31 @@ fn start_server(port: u16) -> Server {
         std::thread::sleep(Duration::from_millis(50));
     }
     panic!("服务端 10 秒内未监听端口 {port}");
+}
+
+/// 连一次，EINTR 就重试。
+///
+/// 子进程退出时内核会给父进程发 SIGCHLD。那个信号会打断阻塞中的套接字调用，
+/// 而 Rust 的标准库不替我们重试，错误原样返回 EINTR。测试里几个用例并发地起
+/// 服务、杀服务，于是这种打断时有时无地出现：一次 `connect` 报 EINTR，或一次
+/// `read` 报 EINTR，测试就红了，与被测的服务端毫无关系。
+fn connect_retry_interrupted(port: u16) -> std::io::Result<TcpStream> {
+    loop {
+        match TcpStream::connect(("127.0.0.1", port)) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            other => return other,
+        }
+    }
+}
+
+/// 读一次，EINTR 就重试。见 [`connect_retry_interrupted`]。
+fn read_retry_interrupted(s: &mut TcpStream, buf: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match s.read(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            other => return other,
+        }
+    }
 }
 
 fn recvn(s: &mut TcpStream, n: usize) -> Vec<u8> {
@@ -100,13 +125,13 @@ fn pairs_two_peers_and_relays_bytes() {
     let fa = phase1(0xAA, 0xBB);
     let fb = phase1(0xBB, 0xAA);
 
-    let mut a = TcpStream::connect(("127.0.0.1", port)).expect("connect A");
+    let mut a = connect_retry_interrupted(port).expect("connect A");
     a.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     a.write_all(&fa).expect("A send phase1");
     a.flush().unwrap();
     std::thread::sleep(Duration::from_millis(200));
 
-    let mut b = TcpStream::connect(("127.0.0.1", port)).expect("connect B");
+    let mut b = connect_retry_interrupted(port).expect("connect B");
     b.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     b.write_all(&fb).expect("B send phase1");
     b.flush().unwrap();
@@ -140,7 +165,7 @@ fn rejects_malformed_phase1_without_answering() {
     let port = free_port();
     let _srv = start_server(port);
 
-    let mut s = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+    let mut s = connect_retry_interrupted(port).expect("connect");
     s.set_read_timeout(Some(Duration::from_millis(1500)))
         .unwrap();
     // param_len 远超 4096
@@ -148,7 +173,7 @@ fn rejects_malformed_phase1_without_answering() {
     s.flush().unwrap();
 
     let mut buf = [0u8; 64];
-    match s.read(&mut buf) {
+    match read_retry_interrupted(&mut s, &mut buf) {
         Ok(0) => {} // 对端关闭，可接受
         Ok(n) => panic!("静默丢弃失败：服务器回了 {n} 字节"),
         Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
@@ -174,7 +199,7 @@ fn refuses_to_start_control_plane_without_token() {
 fn connect_with_retry(port: u16) -> TcpStream {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+        if let Ok(s) = connect_retry_interrupted(port) {
             return s;
         }
         assert!(Instant::now() < deadline, "端口 {port} 在 10 秒内未就绪");
@@ -186,7 +211,7 @@ fn read_line(s: &mut TcpStream) -> String {
     let mut buf = Vec::new();
     let mut b = [0u8; 1];
     loop {
-        match s.read(&mut b) {
+        match read_retry_interrupted(s, &mut b) {
             Ok(0) => panic!("读行途中连接被关闭"),
             Ok(_) => {
                 if b[0] == b'\n' {
