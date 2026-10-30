@@ -151,11 +151,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(std::io::stderr)
         .init();
 
-    // 停机信号在这里就注册，不要等到 accept 循环跟前。
+    // 停机信号尽早注册，不要等到 accept 循环跟前。
     //
-    // unix::signal 在创建时就装上处理器；装得太晚的话，SIGTERM 落在装好之前
-    // 会被默认动作直接杀死进程（退出码 143），优雅停机根本没机会发生。
-    // 注册提前之后，「监听端口已经打开」也就意味着「处理器已经就位」。
+    // term_signal() 是普通函数：unix::signal 在被调用的那一刻就装上处理器。装得
+    // 太晚的话，SIGTERM 落在装好之前会被默认动作直接杀死进程（退出码 143），
+    // 优雅停机根本没机会发生。
+    //
+    // ctrl_c 不一样：它是 async fn，Box::pin 只是搭好 future，不注册任何东西，
+    // 处理器要等 select! 第一次轮询才装上。所以「监听端口已打开」只对 SIGTERM
+    // 蕴含「处理器已就位」，SIGINT 还差一次轮询。实测这个间隔很短（进程起来
+    // 30 毫秒后两个信号都已在 SigCgt 里），但注释不该替 ctrl_c 打包票。要让它
+    // 同样立刻生效，换成 unix::signal(SignalKind::interrupt()) 即可，与
+    // term_signal 对称。
+    //
+    // Both signals are registered as early as possible, not merely before the
+    // accept loop. term_signal() is an ordinary function: unix::signal installs
+    // the handler the moment it is called. ctrl_c is an async fn, so Box::pin
+    // only builds the future; the handler is installed on the first poll inside
+    // select!. The gap is short -- both signals appear in SigCgt 30 ms after
+    // start -- but "the port is open" therefore implies "the handler is in
+    // place" only for SIGTERM. Swapping ctrl_c for
+    // unix::signal(SignalKind::interrupt()) would make the two symmetric.
     let mut term = term_signal();
     let mut ctrl_c = Box::pin(tokio::signal::ctrl_c());
 
