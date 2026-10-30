@@ -13,9 +13,30 @@ use std::time::{Duration, Instant};
 
 const PARAM: &str = r#"{"aead":"AES-256-GCM","hash":"SHA3-256","key_len":256,"module_flags":{},"random_len":256,"random_rate":1024,"window":60}"#;
 
+/// 本进程已经分配出去的端口。
+///
+/// `free_port()` 绑定 0 号端口、记下端口号、再把监听器丢掉——端口随即回到系统
+/// 手里，同一进程里另一个测试可能拿到同一个端口。于是两个服务端抢同一个地址：
+/// 后绑的那个以 EADDRINUSE 退出，先绑的那个测试却连到了别人的服务端，
+/// 或者干脆连不上。
+///
+/// 这就是这个仓库 CI 偶发变红的来源：两个测试同时申请端口，拿到同一个，
+/// 一个测试的连接被拒，另一个测试的断言落在别人的服务端上。
+static ALLOCATED: std::sync::Mutex<Vec<u16>> = std::sync::Mutex::new(Vec::new());
+
 fn free_port() -> u16 {
-    let l = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
-    l.local_addr().expect("local_addr").port()
+    loop {
+        let l = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        let p = l.local_addr().expect("local_addr").port();
+        drop(l);
+        let mut used = ALLOCATED.lock().unwrap_or_else(|e| e.into_inner());
+        if used.contains(&p) {
+            // 已被本进程的另一个测试拿去，换一个。
+            continue;
+        }
+        used.push(p);
+        return p;
+    }
 }
 
 fn phase1(src: u8, dst: u8) -> Vec<u8> {
@@ -48,12 +69,17 @@ fn start_server(port: u16) -> Server {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn server");
-    let srv = Server { child };
+    let mut srv = Server { child };
 
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return srv;
+        }
+        // 服务端若已退出（例如端口被占导致绑定失败），错误信息里要看得出来，
+        // 而不是让人对着「10 秒内未监听」猜。
+        if let Some(status) = srv.child.try_wait().expect("try_wait") {
+            panic!("服务端在监听 {port} 之前就退出了：{status:?}（端口可能已被占用）");
         }
         std::thread::sleep(Duration::from_millis(50));
     }
