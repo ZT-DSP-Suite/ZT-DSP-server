@@ -29,6 +29,15 @@ governing change history is `git log`. If the two ever disagree, `git log` wins.
 
 ### Changed
 
+- **`--version` and the startup banner come from one source.** clap receives the
+  same composed string the banner prints, so the two exits cannot disagree. The
+  output carries the document revision, e.g. `ZT-DSP_SV-1.0.0 (docs 1.0.2)`.
+  The clap `string` feature owns the value; no allocation is leaked for it.
+- **The conformance reference is the 1.0.2 guide.** `version.rs` declares
+  docs 1.0.2 and points at the published 1.0.2 file. `PROTOCOL-CONFORMANCE.md`
+  cites clauses (§1.3, §5.1) instead of line numbers, which drifted between
+  document revisions; the least-privilege row previously named §4.2 while its
+  cited line sits in §1.3 in both 1.0.1 and 1.0.2.
 - **The implementation is split into modules.** `src/main.rs` held every module
 inline as a convenience; each protocol surface now has its own file: `frame.rs`
 (Appendix F), `lobby.rs` (pairing), `silent.rs` (silent drop), `relay.rs` (byte
