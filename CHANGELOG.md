@@ -96,10 +96,10 @@ the version contract from `src/version.rs`.
 - **test-vectors/** reuses the client repository's shared vectors, with a test that
   keeps the -v3 derivation-label convention in lockstep with the client.
 
-- **Source consolidated into a single file** (`src/main.rs`), per the collection rule in
-  `ZT-DSP-client/cn/README.md`: one implementation is one file, and the mainline directory
-  does not grow a directory tree. Module boundaries are kept as inline `mod` blocks, and
-  their `pub` surface is narrowed accordingly.
+- **Source consolidated into a single file** (`src/main.rs`). The single-file collection
+  rule in `isostress-client/cn/README.md` is dropped: implementations follow the ordinary
+  engineering layout of the language in use. Module boundaries are kept as inline `mod`
+  blocks, and their `pub` surface is narrowed accordingly.
 - **Version contract declared** in `src/main.rs` (`mod version`): `FOLLOWS_DOC`,
   `FOLLOWS_DOC_PATH`, `APPLIES_TO_DOC_VERSIONS`, plus `IMPLEMENTATION_ID` and
   `format_version()`. The same shape as `zt_dsp_py/version.py` and `zt_dsp_rs/version.rs`,
@@ -131,6 +131,7 @@ the version contract from `src/version.rs`.
   four TRADEMARK lines and the CoC word are restored to their pre-sweep
   wording, byte-identical to the text before the sweep and matching the
   client and docs trademark files.
+
 - **The control plane's connection-slot counter and its line reader had two
   latent defects.** `read_line_limited` measured a chunk with one `fill_buf`
   and copied it with a second one, so a buffer that changed between the two
@@ -140,7 +141,6 @@ the version contract from `src/version.rs`.
   leaked permanently. The copy now happens inside the measuring borrow, and
   the slot returns through a `Drop` guard that runs on unwind. Constructive
   tests cover the reader paths and the panic path.
-
 - **The README overstated the AGPL network clause.** "Network use counts as
   distribution" demanded more than AGPL section 13 does: unmodified network
   deployments carry no source-offering duty. The bullet now states the actual
