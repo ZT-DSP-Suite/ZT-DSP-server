@@ -184,8 +184,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if cfg.control_listen.is_some() && args.control_token.is_none() {
-        return Err("control plane requires --control-token".into());
+    // 空口令等同于没给。ct_eq 对两个空串返回真，所以空的共享密钥会让任何
+    // 客户端用 {"op":"auth","token":""} 通过鉴权 —— 控制面等于完全不设防。
+    // 「没给」与「给了个空的」在这里一并拒绝。
+    if cfg.control_listen.is_some() {
+        match args.control_token.as_deref() {
+            None => return Err("control plane requires --control-token".into()),
+            Some(t) if t.trim().is_empty() => {
+                return Err("control plane token must not be empty".into())
+            }
+            Some(_) => {}
+        }
     }
 
     eprintln!("ZT-DSP · {}", version::format_version());

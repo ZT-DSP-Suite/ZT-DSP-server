@@ -127,7 +127,7 @@ See [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
 
 Dual-licensed:
 
-- **Open source:** [AGPL-3.0-or-later](LICENSE) — network use counts as distribution.
+- **Open source:** [AGPL-3.0-or-later](LICENSE) — serving a **modified** version over a network requires offering its Corresponding Source (AGPL section 13).
 - **Commercial:** see [`LICENSING.md`](LICENSING.md) for the paid alternative.
 
 Additional terms (trademark, attribution) are in [`ADDITIONAL-TERMS.md`](ADDITIONAL-TERMS.md)
