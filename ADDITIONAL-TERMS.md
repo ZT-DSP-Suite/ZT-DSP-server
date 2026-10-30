@@ -6,9 +6,7 @@ allows and withdraw no permission granted by the license itself.
 
 ## Section 7(b) — preservation of notices and author attribution
 
-1. Every copy and every modified version must keep, in each source file, the
-   `SPDX-License-Identifier` line and the copyright notice of the copy you received.
-   Later versions of this repository use both lines:
+1. Every copy and every modified version must keep, in each source file, both lines:
 
         SPDX-License-Identifier: AGPL-3.0-or-later
         Copyright (c) 2026 isostress Suite maintainers
@@ -44,7 +42,7 @@ is severable; the remaining terms and the license itself are unaffected.
 
 本文件是依 AGPL-3.0 第 7 条作出的附加条款，仅限该条允许的范围：
 
-- **7(b) 保留声明**：每个源文件必须保留你所收到的版本所带的 SPDX 标识与版权行（本仓后续版本使用
+- **7(b) 保留声明**：每个源文件必须保留 SPDX 标识与版权行（版权行为
   `Copyright (c) 2026 isostress Suite maintainers`）；作品的「适当法律声明」必须说明其基于 isostress。
 - **7(c) 不得虚假标示来源**：改动版必须明确标为与原始版本不同。
 - **7(e) 不授予商标权**：除 TRADEMARK.md 允许的合理使用外，不得使用 isostress 名称与标识。

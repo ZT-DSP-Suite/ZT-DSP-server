@@ -28,6 +28,8 @@ license and does not limit any right that license grants.
 - Use the isostress logo as your product icon, or anywhere it implies endorsement.
 - Publish a fork to PyPI or crates.io under the names isostress-py, isostress_py, isostress-rs
   or isostress_rs. Those names identify the isostress project.
+- Use a name, package name, organisation name or account that this project used
+  before the rename to suggest that a fork or derivative is this project.
 - Register a domain, package name, organisation name or social account that
   incorporates the marks in a way that implies you are the project.
 
@@ -54,4 +56,5 @@ isostress、isostress-suite 与 isostress 标识的商标权由 **isostress Suit
 
 **不可以（未经书面许可）**：把修改版、分支或独立实现称为「官方」「参考」「标准」版；把标识用作
 产品图标；以 isostress-py、isostress_py、isostress-rs、isostress_rs 等官方包名发布分支；注册含该标识的
-域名、组织名或社交账号以暗示你是本项目。
+域名、组织名或社交账号以暗示你是本项目；使用本项目改名前的名称、包名、组织名或账号暗示分支或
+衍生作品就是本项目。

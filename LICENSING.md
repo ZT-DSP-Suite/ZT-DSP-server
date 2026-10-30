@@ -50,9 +50,8 @@ Every distribution, fork and derivative work must:
    do not remove or obscure them, and do not add any further restriction beyond the
    additional terms that section 7 permits (this file may be redistributed in
    modified form, but the notices in it may not be removed or altered);
-2. keep, in every source file, the copyright notice and the `SPDX-License-Identifier`
-   line of the copy you received. Later versions of this repository use
-   `Copyright (c) 2026 isostress Suite maintainers`;
+2. keep the `Copyright (c) 2026 isostress Suite maintainers` notice and the
+   `SPDX-License-Identifier` line in every source file;
 3. state that the work is derived from isostress.
 
 Removing or obscuring the copyright notices is a breach of the license, not a
@@ -71,13 +70,12 @@ valid exercise of it.
    须另行取得书面商业授权。
    联系渠道：在 isostress-suite 组织下提 issue：https://github.com/isostress-suite
 
-**署名是本项目的硬性要求**：任何分发、分支、衍生作品都必须保留你所收到的
-版本所带的版权声明与源文件中的 SPDX 标识（本仓后续版本使用
-`Copyright (c) 2026 isostress Suite maintainers`），并声明其源自 isostress。
-移除或遮蔽版权声明不属于许可证赋予的权利。
+**署名是本项目的硬性要求**：任何分发、分支、衍生作品都必须保留
+`Copyright (c) 2026 isostress Suite maintainers` 与源文件中的 SPDX 标识，
+并声明其源自 isostress。移除或遮蔽版权声明不属于许可证赋予的权利。
 
-**许可文本可以随分发修改**：本文件与 `LICENSE` 可以随分发修改或替换，但其中的版权、许可与免责声明
-不得移除或遮蔽；除 AGPL 第 7 条允许的附加条款外，不得附加任何进一步限制。
+**许可文本不得修改**：`LICENSE` 是 AGPL-3.0 全文，分发时不得修改；本说明文件可随项目更新，
+但其中的版权、许可与免责声明不得移除或遮蔽；除 AGPL 第 7 条允许的附加条款外，不得附加任何进一步限制。
 
 **商标不随代码授权**：未经许可，不得把修改版或分支称为 isostress 的"官方"、
 "参考"或"标准"实现。
