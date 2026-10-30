@@ -5,13 +5,13 @@
 
 ## 范围
 
-本仓是**占位仓**。目前只有许可文件、双语 README 与安全策略——没有服务端实现。
+本仓是服务端参考实现（Rust 数据面与 L4 控制面）与配套文档。协议规范在 `isostress-docs`。
 
-请不要向本仓提实现类 PR。`isostress-docs` 里的协议规范描述了服务端角色，实现另行跟踪。
+实现类 PR 按 `CONTRIBUTING.md` 走：先开缺陷单，分支带编号，测试与守卫通过。
 
-## 若你提交第一份实现
+## 提交之前
 
-`isostress-client` 里的客户端实现是「线协议上什么叫正确」的参照。写服务端代码之前：
+`isostress-client` 里的客户端实现是「线协议上什么叫正确」的参照。改动服务端代码之前：
 
 - [ ] 已读 Master Guide 里覆盖响应方角色的章节，尤其是 Phase 2 一节的时序约束。响应方必须先收完整帧、先算完 Diffie-Hellman，再回复，否则低阶点攻击者可以靠时序区分成功与失败。
 - [ ] 静默丢弃行为与规范一致：参数不匹配时，响应方在线路上**什么都不发**。
@@ -34,17 +34,17 @@ Fixes #<缺陷编号>
 
 ## Scope
 
-This repository is a **placeholder**. It currently contains licence files, a bilingual
-README, and a security policy — no server implementation.
+This repository holds the server reference implementation (Rust data plane and L4
+control plane) and its documentation. The protocol specification lives in
+`isostress-docs`.
 
-Please do not open implementation pull requests against it yet. The protocol
-specification in `isostress-docs` describes a server-side role, and the implementation is
-tracked separately.
+Implementation pull requests follow `CONTRIBUTING.md`: open an issue first, name the
+branch after it, and pass the tests and guards.
 
-## If you are adding the first implementation
+## Before you change server code
 
 The client implementation in `isostress-client` is the reference for what "correct" means
-on the wire. Before writing server code:
+on the wire. Before changing server code:
 
 - [ ] The Master Guide sections covering the responder role have been read, especially
       the ordering constraints in the Phase 2 section. The responder must receive the

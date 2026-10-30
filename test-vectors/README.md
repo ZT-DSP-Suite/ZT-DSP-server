@@ -21,8 +21,8 @@
 
 - 消费点：`src/version.rs` 的 `labels_match_the_spec_verbatim`。
 - 生成器：`isostress-client/test-vectors/generate_vectors.py`（`--out PATH` 可指定输出位置）。
-- 复现性门禁：`isostress-client/scripts/check.sh` 会重生成到临时目录并与已提交文件比对，
-  不一致即判失败。
+- 复现性门禁：用 `isostress-client/test-vectors/generate_vectors.py` 重生成到临时路径，
+  与已提交文件逐字节比对；不一致即判失败。
 
 ## 三份怎么保持一致
 

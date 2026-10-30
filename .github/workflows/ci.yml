@@ -147,7 +147,6 @@ jobs:
           echo "$OUT"
           echo "$OUT" | grep -q 'ISOSTRESS_SV-1.0.0'
           # The revision suffix is part of the version contract: --version
-          # prints the same composed string the startup banner prints. This
-          # runs the real binary, which the maintainer-local guard can only
-          # approximate with a static grep.
+          # prints the same composed string the startup banner prints. Running
+          # the real binary is the direct proof.
           echo "$OUT" | grep -q '(docs '

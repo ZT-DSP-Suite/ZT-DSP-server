@@ -16,7 +16,6 @@ cargo build --release      # single static binary
 cargo test                 # unit tests
 python3 tests/e2e.py       # end-to-end: pairing, relay, large transfer
 python3 tests/l3_l4.py     # silent drop + control plane
-bash scripts/check.sh      # repository guard
 ```
 
 MSRV is 1.80. The `release` profile uses thin LTO and strips symbols.
@@ -37,6 +36,12 @@ cargo build --release --target x86_64-unknown-linux-gnu
   specification line and the current text contradicts it.
 - Additions to the L4 control plane, provided they stay off the data plane.
 
+## When we review and merge
+
+Review and merge usually happen between Friday and Sunday, UTC+8. The window is a
+habit of two maintainers with other work, not a service commitment. A pull request
+that waits over a weekday is waiting for a person, not rejected.
+
 ## What we will not merge
 
 - Any change that makes the server decrypt, or hold, session material.
@@ -51,7 +56,8 @@ cargo build --release --target x86_64-unknown-linux-gnu
 
 ## Licence and CLA
 
-Contributions require CLA sign-off. Every new file must start with:
+Contributions require CLA sign-off. The pull request description carries one line,
+`CLA-Agreed: yes`, and every commit carries a `Signed-off-by` line. Every new file must start with:
 
 ```rust
 // SPDX-License-Identifier: AGPL-3.0-or-later
