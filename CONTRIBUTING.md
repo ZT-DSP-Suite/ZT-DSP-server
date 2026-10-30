@@ -36,6 +36,12 @@ cargo build --release --target x86_64-unknown-linux-gnu
   specification line and the current text contradicts it.
 - Additions to the L4 control plane, provided they stay off the data plane.
 
+## When we review and merge
+
+Review and merge usually happen between Friday and Sunday, UTC+8. The window is a
+habit of two maintainers with other work, not a service commitment. A pull request
+that waits over a weekday is waiting for a person, not rejected.
+
 ## What we will not merge
 
 - Any change that makes the server decrypt, or hold, session material.
