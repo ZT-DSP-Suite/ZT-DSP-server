@@ -58,13 +58,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ztdsp
-Group=ztdsp
+User=isostress
+Group=isostress
 ExecStart=/usr/local/bin/isostress-server \
     --listen 0.0.0.0:7443 \
     --control 127.0.0.1:<port> \
     --profile advanced
-Environment=ZT_DSP_CONTROL_TOKEN=<long random secret>
+Environment=ISOSTRESS_CONTROL_TOKEN=<long random secret>
 
 # Hardening
 NoNewPrivileges=true

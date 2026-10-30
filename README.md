@@ -1,13 +1,13 @@
 # isostress Server
 
 > **Status: implementation landed.** The data plane (frame relay, lobby pairing,
-> silent drop) is implemented in Rust and verified against the isostress 1.0.1 wire
+> silent drop) is implemented in Rust and verified against the isostress 1.0.0 wire
 > specification. The L4 extensions (offline delivery, groups, identity directory)
 > are implemented on a **separate control plane** that does not touch the wire format.
 
 | | |
 |---|---|
-| **Protocol** | [isostress 1.0.1](https://github.com/isostress-suite/isostress-docs) |
+| **Protocol** | [isostress 1.0.0](https://github.com/isostress-suite/isostress-docs) |
 | **Language** | Rust (edition 2021, MSRV 1.80) |
 | **Binaries** | single-file, static, `aarch64` + `x86_64` |
 | **Runtime deps** | none (no database, no message broker, no TLS terminator) |

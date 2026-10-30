@@ -99,7 +99,7 @@ struct Args {
     profile: ProfileArg,
     #[arg(long)]
     config: Option<PathBuf>,
-    #[arg(long, env = "ZT_DSP_CONTROL_TOKEN")]
+    #[arg(long, env = "ISOSTRESS_CONTROL_TOKEN")]
     control_token: Option<String>,
     #[arg(long)]
     dump_config: bool,
