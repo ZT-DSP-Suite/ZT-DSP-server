@@ -3,8 +3,8 @@
 Maps each normative requirement the server must satisfy onto the code that satisfies it.
 Every row should be checkable by reading the cited file.
 
-Reference: **ZT-DSP 1.0.1**, `cn/spec/ZT-DSP-1.0.1-总指导.md`
-(English mirror: `en/spec/ZT-DSP-1.0.1-Master_Guide.md`).
+Reference: **ZT-DSP 1.0.2**, `cn/spec/ZT-DSP-1.0.2-总指导.md`
+(English mirror: `en/spec/ZT-DSP-1.0.2-Master_Guide.md`).
 
 ---
 
@@ -12,10 +12,10 @@ Reference: **ZT-DSP 1.0.1**, `cn/spec/ZT-DSP-1.0.1-总指导.md`
 
 | Requirement | Implementation |
 |---|---|
-| Server only forwards envelopes; cannot decrypt (§4.2 line 254) | After pairing, `relay_pair` moves bytes and never inspects payload |
+| Server only forwards envelopes; cannot decrypt (§1.3, Principle Four) | After pairing, `relay_pair` moves bytes and never inspects payload |
 | Server reads only phase-1 routing material | `frame::read_phase1` extracts the two 32-byte token hashes |
-| Must not log pairing information (line 979) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. |
-| Worst case is availability, not confidentiality (line 972) | Structural: no key material reaches the server |
+| Must not log pairing information (§5.1) | No token hash or session id is ever formatted into a log line. Peer socket addresses appear **only at `debug`**, never at `info`; see `docs/THREAT-MODEL.md` §6. **Conclusion:** nothing that can reconstruct a pairing is logged, since the hashes and session ids that would be needed never reach a log line. Whether a bare socket address counts as pairing information is a question the text leaves open; §10.1 records it as a known deviation, together with the one-line-per-site fix. |
+| Worst case is availability, not confidentiality (§5.1) | Structural: no key material reaches the server. **Conclusion:** met for the data plane, because nothing the server holds would disclose a payload. It does **not** follow for the L4 inbox: `offline_pull` does not prove ownership of the destination, so the worst case there includes metadata and queue integrity. §10.2 states exactly what that does and does not expose. |
 
 ## 2. Appendix F.0 — framing
 
@@ -107,7 +107,7 @@ Covered by `lobby::tests::mutual_match_pairs_both`, `same_target_without_reverse
 | `high-anonymity` | 500 | 4 | **off** | **off** | **off** | 300 s |
 
 The identity directory is off in **every** profile: it is a record of when a token hash
-appeared, which spec line 979 forbids. Enabling it is an explicit operator choice that
+appeared, which §5.1 forbids. Enabling it is an explicit operator choice that
 deviates from that requirement, and the server logs a warning at startup when it is on.
 
 ## 8. Deliberately out of scope
@@ -139,7 +139,7 @@ than left implied, so a reviewer can accept them or send them back.
 ### 10.1 `debug`-level lines carry the peer socket address
 
 The row in §1 says peer addresses appear only at `debug`. The specification
-forbids logging *pairing information* (line 979). Whether an IP address and
+forbids logging *pairing information* (§5.1). Whether an IP address and
 port count as pairing information is not something the text decides.
 
 Our reading is that it does not. An address says which endpoint opened a
@@ -164,7 +164,7 @@ What that does and does not expose:
   never has, so what a caller receives is the ciphertext the sender left,
   not plaintext.
 - **Metadata.** Which destinations are receiving mail, how much, and when.
-  That is the pairing-adjacent information line 979 warns about.
+  That is the pairing-adjacent information §5.1 warns about.
 - **Integrity and availability.** `pull` removes what it takes (`pop_front`),
   so a caller can destroy mail that was not addressed to them; `push` accepts
   bytes for any destination, so a caller can inject.
@@ -176,7 +176,7 @@ offline queue has no equivalent check.
 There are two ways to close it, and they are not equivalent:
 
 - bind each pull to the destination's own credential. The control plane then
-  learns who is asking, which is the same disclosure line 979 warns about;
+  learns who is asking, which is the same disclosure §5.1 warns about;
 - or leave it and state plainly that the control plane is a
   fully-trusted-operator interface, not a multi-tenant one.
 
