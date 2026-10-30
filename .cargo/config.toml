@@ -1,0 +1,12 @@
+# 交叉编译用的 linker。
+#
+# 写这份文件是为了在一台机器上产出另一种架构的二进制：开发机是 aarch64，
+# 要出 x86_64；CI 反过来。两个架构都写上，就不用改文件。
+#
+# CI 用 CARGO_TARGET_<TRIPLE>_LINKER 环境变量覆盖这里的值 —— 环境变量优先于
+# 配置文件，所以 CI 机上装的是哪个交叉工具链就用哪个。
+[target.x86_64-unknown-linux-gnu]
+linker = "x86_64-linux-gnu-gcc"
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"

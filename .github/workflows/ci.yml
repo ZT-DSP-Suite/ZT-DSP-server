@@ -1,0 +1,153 @@
+# Continuous integration: the gate that every pull request must pass.
+#
+# Every action is pinned to a commit SHA (not a movable tag): this repository ships a
+# security protocol, so an upstream tag being retargeted must not silently change what
+# runs here. The comment after each pin records the human-readable version.
+#
+# The runner images already ship a stable Rust toolchain, so no third-party Rust
+# action is needed. The architecture matrix below really compiles each target and
+# then asserts the produced binary's machine type with readelf, so that building for
+# both targets is a checked fact rather than a claim.
+#
+# Deliberately not pull_request_target: that would hand a fork's pull request this
+# repository's secrets. This workflow references no secrets.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # Every pull request, whatever it targets. Restricting this to main left
+  # stacked pull requests with no CI at all: a branch based on another feature
+  # branch never matches main, so the jobs never ran and the gate silently did
+  # not apply to them. The workflow reads no secrets, so widening the trigger
+  # does not widen what a fork can reach.
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-test:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            machine: X86-64
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            machine: AArch64
+            cross: true
+    env:
+      # One linker per target triple, not per matrix leg. The runner is x86_64,
+      # so the host triple links with the native cc and the aarch64 triple links
+      # with the cross compiler. An environment variable takes precedence over
+      # .cargo/config.toml, which is written for a developer on the other
+      # architecture.
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Install the cross toolchain
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          # libc6-dev-arm64-cross is only a *recommends* of
+          # gcc-aarch64-linux-gnu, so --no-install-recommends drops it and the
+          # link then fails looking for crt1.o. Ask for it by name.
+          #
+          # libc6-arm64-cross is the aarch64 runtime loader the dynamic
+          # binary needs under qemu; it is a recommends as well, so it has
+          # to be asked for by name too.
+          sudo apt-get install --no-install-recommends -y \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            libc6-arm64-cross
+          # qemu lets the aarch64 binary actually run on this x86_64 runner,
+          # so the version contract below is checked by executing the binary
+          # rather than by grepping its bytes.
+          #
+          # The package changed name: qemu-user-static is a virtual package
+          # with no installation candidate on the 26.04 runner and was split
+          # into qemu-user-binfmt plus qemu-user. Try newest first and fall
+          # back, so this works on both the old and the new image.
+          for pkg in qemu-user-binfmt qemu-user qemu-user-static; do
+            if sudo apt-get install --no-install-recommends -y "$pkg"; then
+              echo "installed $pkg"
+              break
+            fi
+          done
+          if ! command -v qemu-aarch64-static >/dev/null && \
+             ! command -v qemu-aarch64 >/dev/null; then
+            echo 'no aarch64 qemu binary after install'
+            exit 1
+          fi
+
+      - name: Toolchain
+        run: |
+          rustc --version
+          cargo --version
+          rustup target add ${{ matrix.target }}
+          rustup component add rustfmt clippy
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Release build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Assert the binary really is ${{ matrix.machine }}
+        run: |
+          BIN=target/${{ matrix.target }}/release/zt-dsp-server
+          test -x "$BIN" || { echo "missing $BIN"; exit 1; }
+          ls -l "$BIN"
+          readelf -h "$BIN" | grep Machine
+          readelf -h "$BIN" | grep -q "${{ matrix.machine }}" || {
+            echo "expected ${{ matrix.machine }}, got:"
+            readelf -h "$BIN" | grep Machine
+            exit 1
+          }
+
+      - name: Version contract
+        run: |
+          BIN=target/${{ matrix.target }}/release/zt-dsp-server
+          # The aarch64 binary cannot run natively on an x86_64 runner, so it
+          # runs under qemu there. Either way the binary is executed, not
+          # grepped.
+          #
+          # -L points qemu at the cross sysroot: the aarch64 loader and the
+          # aarch64 libc live under /usr/aarch64-linux-gnu on the runner, and
+          # qemu would otherwise look for them in the host's /lib and fail
+          # with the loader missing.
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            # The binary name changed too: 26.04 ships qemu-aarch64, older
+            # images ship qemu-aarch64-static.
+            QEMU=$(command -v qemu-aarch64-static || command -v qemu-aarch64)
+            OUT=$("$QEMU" -L /usr/aarch64-linux-gnu "$BIN" --version)
+          else
+            OUT=$("$BIN" --version)
+          fi
+          echo "$OUT"
+          echo "$OUT" | grep -q 'ZT-DSP_SV-1.0.0'
+          # The revision suffix is part of the version contract: --version
+          # prints the same composed string the startup banner prints. This
+          # runs the real binary, which the fallback branch of check.sh
+          # item 9 cannot do.
+          echo "$OUT" | grep -q '(docs '
