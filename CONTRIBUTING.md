@@ -50,7 +50,8 @@ cargo build --release --target x86_64-unknown-linux-gnu
 
 ## Licence and CLA
 
-Contributions require CLA sign-off. Every new file must start with:
+Contributions require CLA sign-off. The pull request description carries one line,
+`CLA-Agreed: yes`, and every commit carries a `Signed-off-by` line. Every new file must start with:
 
 ```rust
 // SPDX-License-Identifier: AGPL-3.0-or-later
