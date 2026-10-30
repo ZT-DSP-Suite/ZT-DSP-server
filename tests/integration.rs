@@ -219,3 +219,74 @@ fn a_successful_auth_resets_the_failure_budget() {
         "成功鉴权必须把失败预算清零；否则这里已累计 5 次失败并被断开"
     );
 }
+
+/// 控制面的读超时必须来自配置，而不是写死的常量。
+///
+/// `Config` 里的 `control_read_timeout_secs` 此前没有任何代码读取，控制面用的是
+/// 源码里的 30 秒常量；`control_write_timeout_secs` 与 `accept_backoff_ms` 同样是死配置。
+/// 这里用一份把读超时设为 1 秒的配置起服务端，连上后什么都不发：若超时仍写死 30 秒，
+/// 连接不会在 5 秒内被关闭，测试就会失败。
+#[test]
+fn control_plane_honours_the_configured_read_timeout() {
+    let port = free_port();
+    let cport = free_port();
+
+    let cfg = format!(
+        r#"{{
+  "listen": "127.0.0.1:{port}",
+  "control_listen": "127.0.0.1:{cport}",
+  "profile": "beginner",
+  "handshake_timeout_secs": 15,
+  "lobby_timeout_secs": 30,
+  "idle_timeout_secs": 0,
+  "max_connections": 2000,
+  "max_per_ip": 32,
+  "buffer_bytes": 32768,
+  "offline": {{ "enabled": true, "max_payload": 65536, "max_per_recipient": 20, "max_recipients": 10000, "ttl_secs": 86400 }},
+  "group": {{ "enabled": true, "max_members": 32, "max_groups": 10000, "max_payload": 65536 }},
+  "directory": {{ "enabled": false, "ttl_secs": 3600 }},
+  "control_read_timeout_secs": 1,
+  "control_write_timeout_secs": 30,
+  "relay_write_timeout_secs": 30,
+  "accept_backoff_ms": 50,
+  "sweep_lobby_secs": 5,
+  "sweep_storage_secs": 60
+}}"#
+    );
+
+    let cfg_path = std::env::temp_dir().join(format!("zt-dsp-cfg-{cport}.json"));
+    std::fs::write(&cfg_path, cfg).expect("写配置文件");
+
+    let child = Command::new(env!("CARGO_BIN_EXE_zt-dsp-server"))
+        .args([
+            "--config",
+            cfg_path.to_str().expect("路径是 UTF-8"),
+            "--control-token",
+            "integration-test-token",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn server");
+    let _srv = Server { child };
+
+    let mut c = connect_with_retry(cport);
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+    // 什么都不发。服务端应在配置的 1 秒读超时后关闭这条连接。
+    let start = Instant::now();
+    let mut buf = [0u8; 1];
+    let closed = matches!(c.read(&mut buf), Ok(0));
+    let elapsed = start.elapsed();
+
+    let _ = std::fs::remove_file(&cfg_path);
+
+    assert!(
+        closed,
+        "控制面应在配置的读超时后关闭空闲连接，而不是一直挂着"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "读超时必须来自配置（1 秒），实际等待了 {elapsed:?}"
+    );
+}
