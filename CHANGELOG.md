@@ -97,7 +97,7 @@ the version contract from `src/version.rs`.
   keeps the -v3 derivation-label convention in lockstep with the client.
 
 - **Source consolidated into a single file** (`src/main.rs`). The single-file collection
-  rule in `ZT-DSP-client/cn/README.md` is dropped: implementations follow the ordinary
+  rule in `isostress-client/cn/README.md` is dropped: implementations follow the ordinary
   engineering layout of the language in use. Module boundaries are kept as inline `mod`
   blocks, and their `pub` surface is narrowed accordingly.
 - **Version contract declared** in `src/main.rs` (`mod version`): `FOLLOWS_DOC`,
@@ -131,6 +131,16 @@ the version contract from `src/version.rs`.
   four TRADEMARK lines and the CoC word are restored to their pre-sweep
   wording, byte-identical to the text before the sweep and matching the
   client and docs trademark files.
+
+- **The control plane's connection-slot counter and its line reader had two
+  latent defects.** `read_line_limited` measured a chunk with one `fill_buf`
+  and copied it with a second one, so a buffer that changed between the two
+  calls copies bytes it never measured — its own comment claimed a single
+  call. The per-connection slot counter was decremented at the end of each
+  spawned task, so a panic skipped the decrement and one of the 16 slots
+  leaked permanently. The copy now happens inside the measuring borrow, and
+  the slot returns through a `Drop` guard that runs on unwind. Constructive
+  tests cover the reader paths and the panic path.
 - **The README overstated the AGPL network clause.** "Network use counts as
   distribution" demanded more than AGPL section 13 does: unmodified network
   deployments carry no source-offering duty. The bullet now states the actual

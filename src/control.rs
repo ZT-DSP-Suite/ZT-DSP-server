@@ -143,7 +143,9 @@ async fn read_line_limited<R: AsyncBufRead + Unpin>(
 ) -> std::io::Result<Option<usize>> {
     out.clear();
     loop {
-        // 只 fill_buf 一次：两次调用之间缓冲区可能被改写，chunk_len 就会失配。
+        // Only one fill_buf per iteration: the chunk length is computed and
+        // the bytes are copied inside the same borrow, so the buffer cannot
+        // change between measuring and copying.
         let (chunk_len, hit_newline) = {
             let available = r.fill_buf().await?;
             if available.is_empty() {
@@ -152,22 +154,19 @@ async fn read_line_limited<R: AsyncBufRead + Unpin>(
                 }
                 return Ok(Some(out.len()));
             }
-            match available.iter().position(|&b| b == b'\n') {
+            let (chunk_len, hit_newline) = match available.iter().position(|&b| b == b'\n') {
                 Some(p) => (p + 1, true),
                 None => (available.len(), false),
+            };
+            if out.len() + chunk_len > max {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "control line too long",
+                ));
             }
-        };
-
-        if out.len() + chunk_len > max {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "control line too long",
-            ));
-        }
-        {
-            let available = r.fill_buf().await?;
             out.extend_from_slice(&available[..chunk_len]);
-        }
+            (chunk_len, hit_newline)
+        };
         r.consume(chunk_len);
         if hit_newline {
             return Ok(Some(out.len()));
@@ -198,13 +197,26 @@ pub async fn serve(addr: SocketAddr, state: Arc<ControlState>) -> std::io::Resul
         live.fetch_add(1, Ordering::Relaxed);
 
         let child_state = Arc::clone(&state);
-        let live_count = Arc::clone(&live);
+        let slot = ConnSlot(Arc::clone(&live));
         tokio::spawn(async move {
+            // The guard hands the slot back on every exit path, including a
+            // panic: the runtime drops the future, and Drop runs. A bare
+            // fetch_sub at the end of the task skipped the panic path and
+            // leaked one of the 16 slots permanently.
+            let _slot = slot;
             if let Err(err) = handle(stream, child_state).await {
                 debug!(%peer, error = %err, "控制面连接结束");
             }
-            live_count.fetch_sub(1, Ordering::Relaxed);
         });
+    }
+}
+
+/// One live control connection. Hands the slot back on every exit path.
+struct ConnSlot(Arc<AtomicUsize>);
+
+impl Drop for ConnSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -405,6 +417,67 @@ fn dispatch(req: Req, state: &ControlState) -> Resp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The measurement and the copy of a chunk happen inside one fill_buf
+    /// borrow. A second fill between them let a rewriting buffer desynchronise
+    /// chunk_len from the bytes actually copied.
+    #[tokio::test]
+    async fn read_line_copies_the_chunk_it_measured() {
+        let mut buf: &[u8] = b"SET x=1\nGET y\n";
+        let mut out = Vec::new();
+        let n = read_line_limited(&mut buf, 64, &mut out).await.unwrap();
+        assert_eq!(n, Some(8));
+        assert_eq!(out, b"SET x=1\n");
+        let n = read_line_limited(&mut buf, 64, &mut out).await.unwrap();
+        assert_eq!(n, Some(6));
+        assert_eq!(out, b"GET y\n");
+        // EOF with an empty output buffer is None.
+        let n = read_line_limited(&mut buf, 64, &mut out).await.unwrap();
+        assert_eq!(n, None);
+    }
+
+    #[tokio::test]
+    async fn read_line_reports_eof_without_newline() {
+        let mut buf: &[u8] = b"no trailing newline";
+        let mut out = Vec::new();
+        let n = read_line_limited(&mut buf, 64, &mut out).await.unwrap();
+        assert_eq!(n, Some(19));
+        assert_eq!(out, b"no trailing newline");
+    }
+
+    #[tokio::test]
+    async fn read_line_rejects_overlong_lines() {
+        let mut buf: &[u8] = &[b'a'; 200];
+        let mut out = Vec::new();
+        let err = read_line_limited(&mut buf, 64, &mut out).await.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        // Nothing beyond the cap enters the buffer.
+        assert!(out.len() <= 64);
+    }
+
+    /// The slot must come back on every exit path. A panic inside the spawned
+    /// task drops the future, so a Drop guard recovers it; the previous bare
+    /// fetch_sub at the task end leaked one of the 16 slots permanently.
+    #[test]
+    fn conn_slot_returns_on_drop_and_on_panic() {
+        let live = Arc::new(AtomicUsize::new(0));
+        live.fetch_add(1, Ordering::Relaxed);
+        {
+            let _slot = ConnSlot(Arc::clone(&live));
+            assert_eq!(live.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(
+            live.load(Ordering::Relaxed),
+            0,
+            "normal drop returns the slot"
+        );
+        live.fetch_add(1, Ordering::Relaxed);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _slot = ConnSlot(Arc::clone(&live));
+            panic!("task panic");
+        }));
+        assert_eq!(live.load(Ordering::Relaxed), 0, "panic unwinds Drop");
+    }
 
     #[test]
     fn error_responses_carry_a_machine_code() {
